@@ -1,0 +1,15 @@
+.vscode
+bin
+include
+lib
+lib64
+__pycache__
+*.bak
+.bak/
+*.build
+*.build/
+*.dist
+*.dist/
+*.lock
+pyvenv/
+Pipfile.lock
