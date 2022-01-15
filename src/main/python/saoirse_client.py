@@ -2,6 +2,7 @@
 # src/python/saoirse_client.py
 
 import time, sys, pyglet
+from pyglet.gl import glEnable, GL_DEPTH_TEST, GL_CULL_FACE
 from saoirse_base import Identifier, MainGameObject, InteractableGameObject
 from saoirse_server import saoirse_id
 
@@ -55,6 +56,9 @@ class SaoirseClientScreenWidget(MainGameObject, InteractableGameObject):
     def draw_image(self, ide, left=0, top=0):
         self.get_parent().draw_image(ide, self.get_top() + top, self.get_left() + left)
 
+    def draw_model(self, ide, left=0, top=0):
+        self.get_parent().draw_model(ide, self.get_top() + top, self.get_left() + left)
+
     def draw_text(self, text, size, left=0, top=0):
         self.get_parent().draw_text(size, text, self.get_left() + left, self.get_top() + top)
 
@@ -81,7 +85,7 @@ class SaoirseClientButton(SaoirseClientScreenWidget):
         return self.label
 
     def tick_content(self):
-        self.draw_text(self.get_label(), self.get_width()/2, self.get_left() + self.get_width()/4, self.get_top() + self.get_height()/4)
+        self.draw_text(self.get_label(), self.get_width()/2, self.get_left(), self.get_top())
 
 
 class SaoirseScreen(SaoirseClientScreenWidget):
@@ -97,10 +101,11 @@ class SaoirseScreen(SaoirseClientScreenWidget):
     def get_children(self):
         return self.children
 
-    def add_child(self, child):
+    def add_child(self, child, move_child=True):
         child.set_parent(self)
-        child.set_left(child.get_left() + self.get_left())
-        child.set_top(child.get_top() + self.get_top())
+        if move_child:
+            child.set_left(child.get_left() + self.get_left())
+            child.set_top(child.get_top() + self.get_top())
         self.children[child.get_id().get_path_str()] = child
 
     def on_removed(self):
@@ -128,7 +133,7 @@ class SaoirseClientSingleplayerButton(SaoirseClientButton):
         super().__init__(Identifier([saoirse_id, "screens", "singleplayer"]), server, parent=parent, width=width, height=height, left=left, top=top, label="Singleplayer")
 
     def tick_content(self):
-        self.draw_image(Identifier(["resources", saoirse_id, "media", "pic1.png"]), -self.left, -self.top)
+        self.draw_image(Identifier(["resources", saoirse_id, "media", "pic1.png"]), self.left, self.top)
         super().tick_content()
 
 
@@ -140,21 +145,46 @@ class SaoirseClientMainScreen(SaoirseScreen):
         self.add_child(SaoirseClientSingleplayerButton(self.get_server()))
         super().draw()
 
+    def tick_content(self):
+        pass
+        #pyglet.resource.image("resources/saoirse/media/pic1.png")
+        #self.draw_model(Identifier(["resources", saoirse_id, "media", "box1.obj"]), self.left + 10, self.top + 10)
+
 
 class SaoirseClientMainWindowScreen(SaoirseScreen):
-    def __init__(self):
+    def __init__(self, headless=False):
         super().__init__(Identifier([saoirse_id, "screens", "main_window"]), None, self, title="Saoirse")
+
+        self.render_que = []
+        self.batch = pyglet.graphics.Batch()
+
+        self.background_group = pyglet.graphics.OrderedGroup(0)
+        self.midground_group = pyglet.graphics.OrderedGroup(1000)
+        self.foreground_group = pyglet.graphics.OrderedGroup(10000)
+        self.text_group = pyglet.graphics.OrderedGroup(1000000)
 
         self.draw()
 
-        self.window = pyglet.window.Window(width=self.get_width(), height=self.get_height())
+        if headless:
+            while True:
+                self.tick()
+        else:
+            glEnable(GL_DEPTH_TEST)
+            glEnable(GL_CULL_FACE)
 
-        @self.window.event
-        def on_draw():
-            self.window.clear()
-            self.tick()
+            self.window = pyglet.window.Window(width=self.get_width(), height=self.get_height())
 
-        pyglet.app.run()
+            @self.window.event
+            def on_draw():
+                self.window.clear()
+                self.tick()
+                self.batch.draw()
+                for obj in self.render_que:
+                    if hasattr(obj, "delete"):
+                        obj.delete()
+                self.render_que.clear()
+
+            pyglet.app.run()
 
         self.on_removed()
 
@@ -170,15 +200,25 @@ class SaoirseClientMainWindowScreen(SaoirseScreen):
         pass
         #self.draw_image(Identifier(["resources", saoirse_id, "media", "pic1.png"]), 0, 0)
 
-    def draw_image(self, ide, left, top):
-        pyglet.resource.image(ide.get_file_path()).blit(left, top)
+    def draw_image(self, ide, left, top, group=None):
+        if group is None:
+            group = self.foreground_group
+        self.render_que.append(pyglet.sprite.Sprite(pyglet.resource.image(ide.get_file_path()), x=left, y=top, batch=self.batch, group=group))
 
-    def draw_text(self, text, size, left, top):
-        pyglet.text.Label(text,
+    def draw_model(self, ide, left, top, group=None):
+        if group is None:
+            group = self.foreground_group
+        self.render_que.append(pyglet.resource.model(ide.get_file_path(), batch=self.batch))
+
+    def draw_text(self, text, size, left, top, group=None):
+        if group is None:
+            group = self.text_group
+        self.render_que.append(pyglet.text.Label(
+                          text,
                           font_name='Exo 2 Regular',
                           font_size=size,
                           x=left, y=top,
-                          anchor_x='left', anchor_y='top').draw()
+                          anchor_x='center', anchor_y='center', batch=self.batch, group=group))
 
     def play_sound(self, ide):
         pyglet.resource.media(ide.get_file_path()).play()

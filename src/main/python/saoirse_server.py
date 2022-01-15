@@ -1,9 +1,11 @@
 # This file is:
 # src/python/saoirse_server.py
 
-import sys
+import sys, os
 from enum import Enum
-from saoirse_base import Identifier, BaseCategorizedRegistry, MainGameObject, Item, Tile, Fluid, Entity, BaseServer
+#from msgpack import pack as mpack, unpack as munpack
+from json import dumps as jdump, loads as jload
+from saoirse_base import Identifier, BaseCategorizedRegistry, MainGameObject, Item, SpaceGameObject, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer
 
 saoirse_id = "saoirse"
 
@@ -131,14 +133,49 @@ class SaoirseRegistry(BaseCategorizedRegistry):
 
 
 class SaoirseServer(BaseServer):
-    def __init__(self):
+    def __init__(self, save_file="world.sworld"):
         super().__init__(saoirse_id, SaoirseRegistry(self))
+
+        self.save_file = save_file
+
+        if os.path.isfile(self.get_save_file()):
+            self.read_from_file()
+        else:
+            self.prefill_content()
+
+    def prefill_content(self):
+        self.add_three_dimensional_space(ThreeDimensionalSpace(Identifier([saoirse_id, "spaces", "natural_land"]), self))
+
+    def get_save_file(self):
+        return self.save_file
+
+    #def save_to_file(self):
+    #    with open(self.get_save_file(), "w") as f:
+    #        mpack(self.get_data(), f)
+
+    #def read_from_file(self):
+    #    with open(self.get_save_file(), "r") as f:
+    #        self.set_data(munpack(f))
+
+    def save_to_file(self):
+        with open(self.get_save_file(), "w") as f:
+            f.write(jdump(self.get_data(), indent=2))
+
+    def read_from_file(self):
+        with open(self.get_save_file(), "r") as f:
+            self.set_data(jload(f.read()))
+
+    def on_removed(self):
+        self.save_to_file()
+        super().on_removed()
 
 
 def main(args):
     server = SaoirseServer()
-    while True:
-        server.tick()
+    #while True:
+    #    server.tick()
+    server.tick()
+    server.on_removed()
 
 
 if __name__ == "__main__":

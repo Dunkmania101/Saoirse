@@ -354,6 +354,17 @@ class TickableObject():
         return 64
 
 
+class InteractableGameObject():
+    def get_action_by_id(self, ide, actor):
+        return None
+
+    def get_main_action(self, actor):
+        return self.get_action_by_id(ActionIds.MAIN, actor)
+
+    def get_secondary_action(self, actor):
+        return self.get_action_by_id(ActionIds.SECONDARY, actor)
+
+
 class MainGameObject(TickableObject):
     def __init__(self, ide, server):
         self.ide = ide
@@ -380,17 +391,6 @@ class MainGameObject(TickableObject):
 
     def get_data(self):
         return {}
-
-
-class InteractableGameObject():
-    def get_action_by_id(self, ide, actor):
-        return None
-
-    def get_main_action(self, actor):
-        return self.get_action_by_id(ActionIds.MAIN, actor)
-
-    def get_secondary_action(self, actor):
-        return self.get_action_by_id(ActionIds.SECONDARY, actor)
 
 
 class SpaceGameObject(MainGameObject, InteractableGameObject):
@@ -455,7 +455,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
         return self.space_game_objects
 
     def get_space_game_objects(self):
-        return self.get_space_game_objects().values()
+        return self.get_space_game_objects_dict().values()
 
     def get_g_constant(self):
         return 6.67 * (10**-11)
@@ -556,18 +556,22 @@ class BaseServer(MainGameObject):
         return self.spaces
 
     def add_three_dimensional_space(self, three_dimensional_space):
-        self.spaces[three_dimensional_space.get_id().get_str()] = three_dimensional_space
+        self.spaces[three_dimensional_space.get_id().get_path_str()] = three_dimensional_space
 
     def get_three_dimensional_space(self, ide):
-        return self.spaces.get(ide.get_str(), None)
+        return self.spaces.get(ide.get_path_str(), None)
 
     def tick(self):
-        for space in self.get_spaces():
+        for space in self.get_spaces().values():
             space.tick()
         time.sleep(1 / self.get_ticks_per_second())
 
     def get_data(self):
         data = {}
-        for space in self.get_spaces():
-            data[space.get_id().get_str()] = space.get_data()
+        for space in self.get_spaces().values():
+            data[space.get_id().get_path_str()] = space.get_data()
         return data
+
+    def set_data(self, data):
+        for space_data in data.values():
+            self.add_three_dimensional_space()
