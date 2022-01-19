@@ -102,6 +102,14 @@ class Identifier():
         return None
 
 
+class IdentifierEnum(Enum):
+    def get_base_ide(self):
+        return Identifier()
+
+    def __setattr__(self, name, value):
+        super().__setattr__(name, self.get_base_ide().append([value]))
+
+
 class IdentifierObjPair():
     def __init__(self, id_in=Identifier(), obj_in=None):
         self.set_id(id_in)
@@ -187,6 +195,9 @@ class BaseCategorizedRegistry(BaseRegistry):
     #                    categorized_entry.set_id(Identifier(entry_id_path, entry_id.get_delimiter()))
     #                    entries_out[categorized_entry.get_id().get_path_str()] = categorized_entry
     #    return entries_out
+
+    def get_categories(self):
+        return super().get_entries_dict()
 
     def get_category(self, category_id_in):
         return super().get_entry(category_id_in).get_obj()
@@ -323,7 +334,7 @@ class ThreeDimensionalPosition():
         Z = "z"
 
     def to_dict(self):
-        return {ThreeDimensionalPosition.Axies.X: self.get_x(), ThreeDimensionalPosition.Axies.Y: self.get_y(), ThreeDimensionalPosition.Axies.Z: self.get_z()}
+        return {ThreeDimensionalPosition.Axies.X.value: self.get_x(), ThreeDimensionalPosition.Axies.Y.value: self.get_y(), ThreeDimensionalPosition.Axies.Z.value: self.get_z()}
 
     def to_str(self):
         return str(self.to_dict())
@@ -387,13 +398,14 @@ class MainGameObject(TickableObject):
         return self.ide
 
     def set_data(self, data):
-        pass
+        return self
 
     def get_data(self):
         return {}
 
 
 class SpaceGameObject(MainGameObject, InteractableGameObject):
+    pos_key = "pos"
     def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), three_dimensional_space=None):
         super().__init__(ide, server)
 
@@ -411,6 +423,16 @@ class SpaceGameObject(MainGameObject, InteractableGameObject):
 
     def get_three_dimensional_space(self):
         return self.three_dimensional_space
+
+    def set_data(self, data):
+        if self.pos_key in data.keys():
+            self.set_pos(ThreeDimensionalPosition.of_dict(data.get(self.pos_key)))
+        return super().set_data(data)
+
+    def get_data(self):
+        data = super().get_data()
+        data[self.pos_key] = self.get_pos
+        return data
 
     def has_gravity(self):
         return True
@@ -466,7 +488,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
     def add_space_game_object_at_pos(self, pos, space_game_object):
         space_game_object.set_pos(pos)
         space_game_object.set_three_dimensional_space(self)
-        pos_str = pos.get_str()
+        pos_str = pos.to_str()
         existing_objects = self.space_game_objects.get(pos_str, [])
         existing_objects.append(space_game_object)
         self.space_game_objects[pos_str] = existing_objects
@@ -481,7 +503,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
 
     def get_space_game_objects_at_pos(self, pos, check_space_game_object=None):
         if check_space_game_object is None:
-            return self.get_space_game_objects_dict().get(pos.get_str(), [])
+            return self.get_space_game_objects_dict().get(pos.to_str(), [])
         space_game_objects = []
         for space_game_object in self.get_space_game_objects():
             if space_game_object.get_pos() == pos and (check_space_game_object == space_game_object or check_space_game_object is None):
@@ -505,9 +527,10 @@ class ThreeDimensionalSpace(SpaceGameObject):
             space_game_object.set_pos(space_game_object.get_pos().offset(space_game_object.get_pos().get_nearest_direction_to_other_pos(nearest.get_pos()), self.get_gravity_speed(space_game_object.get_mass(), nearest.get_mass(), nearest.get_pos().get_distance_from_other(space_game_object.get_pos()))))
 
     def tick(self):
-        for space_game_object in self.get_space_game_objects():
-            space_game_object.tick()
-            self.tick_space_game_object_gravity(space_game_object)
+        for space_game_object_set in self.get_space_game_objects():
+            for space_game_object in space_game_object_set:
+                space_game_object.tick()
+                self.tick_space_game_object_gravity(space_game_object)
 
     class SaveDataKeys(Enum):
         IDE = "ide"
@@ -528,20 +551,22 @@ class ThreeDimensionalSpace(SpaceGameObject):
 
     def get_data(self):
         data = {}
-        for i, space_game_object in enumerate(self.get_space_game_objects()):
-            if space_game_object is not None:
-                ide_path = space_game_object.get_id().get_path()
-                pos_dict = space_game_object.get_pos().get_dict()
-                saved_data = space_game_object.get_data()
-                space_game_object_data = {}
-                space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE] = ide_path
-                space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS] = pos_dict
-                space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.DATA] = saved_data
-                data[str(i)] = space_game_object_data
+        for i, space_game_object_set in enumerate(self.get_space_game_objects()):
+            for i1, space_game_object in enumerate(space_game_object_set):
+                if space_game_object is not None:
+                    ide_path = space_game_object.get_id().get_path()
+                    pos_dict = space_game_object.get_pos().to_dict()
+                    saved_data = space_game_object.get_data()
+                    space_game_object_data = {}
+                    space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value] = ide_path
+                    space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS.value] = pos_dict
+                    space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.DATA.value] = saved_data
+                    data[str(i1 * i)] = space_game_object_data
         return data
 
 
 class BaseServer(MainGameObject):
+    spaces_key = "spaces"
     def __init__(self, ide, registry):
         super().__init__(ide, self)
 
@@ -564,14 +589,16 @@ class BaseServer(MainGameObject):
     def tick(self):
         for space in self.get_spaces().values():
             space.tick()
-        time.sleep(1 / self.get_ticks_per_second())
 
     def get_data(self):
-        data = {}
+        spaces_data = {}
         for space in self.get_spaces().values():
-            data[space.get_id().get_path_str()] = space.get_data()
-        return data
+            spaces_data[space.get_id().get_path_str()] = space.get_data()
+        return {self.spaces_key: spaces_data}
 
     def set_data(self, data):
-        for space_data in data.values():
-            self.add_three_dimensional_space()
+        for space_key in data.keys():
+            space_ide = Identifier(space_key)
+            if space_key not in self.get_spaces().keys():
+                self.add_three_dimensional_space(ThreeDimensionalSpace(space_ide, self))
+            self.get_three_dimensional_space(space_ide).set_data(data.get(space_key))
