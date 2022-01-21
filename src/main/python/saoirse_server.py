@@ -1,9 +1,9 @@
 # This file is:
 # src/python/saoirse_server.py
 
-import sys, os
+import sys, os, time
 #from msgpack import pack as mpack, unpack as munpack
-from json import dumps as jdump, loads as jload
+from json import dumps as jdumps, loads as jloads
 from saoirse_base import Identifier, IdentifierEnum, BaseCategorizedRegistry, MainGameObject, Item, SpaceGameObject, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer
 
 
@@ -20,6 +20,7 @@ class Spaces:
         def __init__(self, server):
             super().__init__(SaoirseRegistry.Identifiers.SPACES.normal.value, server)
 
+            # TEST - adding objects
             self.add_space_game_object_at_pos(ThreeDimensionalPosition(99, 53, 215), Item(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.value, server))
 
 
@@ -198,11 +199,11 @@ class SaoirseServer(BaseServer):
 
     def save_to_file(self):
         with open(self.get_save_file(), "w") as f:
-            f.write(jdump(self.get_data(), indent=2))
+            f.write(jdumps(self.get_data(), indent=2))
 
     def read_from_file(self):
         with open(self.get_save_file(), "r") as f:
-            self.set_data(jload(f.read()))
+            self.set_data(jloads(f.read()))
 
     def on_removed(self):
         self.save_to_file()
@@ -211,10 +212,12 @@ class SaoirseServer(BaseServer):
 
 def main(args):
     server = SaoirseServer()
-    #while True:
-    #    server.tick()
-    #    time.sleep(1 / server.get_ticks_per_second())
-    server.tick()
+    while not server.killed:
+        server.tick()
+        time.sleep(1 / server.get_ticks_per_second())
+
+        # Kill the server after 1 tick for testing
+        server.killed = True
     server.on_removed()
 
 

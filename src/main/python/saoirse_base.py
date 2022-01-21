@@ -405,7 +405,6 @@ class MainGameObject(TickableObject):
 
 
 class SpaceGameObject(MainGameObject, InteractableGameObject):
-    pos_key = "pos"
     def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), three_dimensional_space=None):
         super().__init__(ide, server)
 
@@ -423,16 +422,6 @@ class SpaceGameObject(MainGameObject, InteractableGameObject):
 
     def get_three_dimensional_space(self):
         return self.three_dimensional_space
-
-    def set_data(self, data):
-        if self.pos_key in data.keys():
-            self.set_pos(ThreeDimensionalPosition.of_dict(data.get(self.pos_key)))
-        return super().set_data(data)
-
-    def get_data(self):
-        data = super().get_data()
-        data[self.pos_key] = self.get_pos
-        return data
 
     def has_gravity(self):
         return True
@@ -538,20 +527,22 @@ class ThreeDimensionalSpace(SpaceGameObject):
         DATA = "data"
 
     def set_data(self, data):
-        for space_game_object_data in data.values():
-            if ThreeDimensionalSpace.SaveDataKeys.IDE in space_game_object_data.keys() and ThreeDimensionalSpace.SaveDataKeys.POS in space_game_object_data.keys():
-                ide = Identifier(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE])
-                space_game_object_pair = self.get_server().get_registry().get_entry(ide)
-                if space_game_object_pair is not None:
-                    pos = ThreeDimensionalPosition.of_dict(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS])
-                    space_game_object = space_game_object_pair.get_obj()(ide, pos, self)
-                    if space_game_object is not None:
-                        space_game_object.set_data(space_game_object_data.get(ThreeDimensionalSpace.SaveDataKeys.DATA), {})
-                        self.add_space_game_object_at_pos(pos, space_game_object)
+        for space_game_object_set_data in data.values():
+            for space_game_object_data in space_game_object_set_data.values():
+                if ThreeDimensionalSpace.SaveDataKeys.IDE in space_game_object_data.keys() and ThreeDimensionalSpace.SaveDataKeys.POS in space_game_object_data.keys():
+                    ide = Identifier(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE])
+                    space_game_object_pair = self.get_server().get_registry().get_entry(ide)
+                    if space_game_object_pair is not None:
+                        pos = ThreeDimensionalPosition.of_dict(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS])
+                        space_game_object = space_game_object_pair.get_obj()(ide, pos, self)
+                        if space_game_object is not None:
+                            space_game_object.set_data(space_game_object_data.get(ThreeDimensionalSpace.SaveDataKeys.DATA), {})
+                            self.add_space_game_object_at_pos(pos, space_game_object)
 
     def get_data(self):
-        data = {}
+        data = super().get_data()
         for i, space_game_object_set in enumerate(self.get_space_game_objects()):
+            space_game_object_set_data = {}
             for i1, space_game_object in enumerate(space_game_object_set):
                 if space_game_object is not None:
                     ide_path = space_game_object.get_id().get_path()
@@ -561,18 +552,21 @@ class ThreeDimensionalSpace(SpaceGameObject):
                     space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value] = ide_path
                     space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS.value] = pos_dict
                     space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.DATA.value] = saved_data
-                    data[str(i1 * i)] = space_game_object_data
+                    space_game_object_set_data[str(i1)] = space_game_object_data
+            data[str(i)] = space_game_object_set_data
         return data
 
 
 class BaseServer(MainGameObject):
     spaces_key = "spaces"
+
     def __init__(self, ide, registry):
         super().__init__(ide, self)
 
         self.registry = registry
         self.registry.server = self
         self.spaces = {}
+        self.killed = False
 
     def get_registry(self):
         return self.registry

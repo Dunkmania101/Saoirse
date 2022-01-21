@@ -12,6 +12,7 @@ class Widgets:
         def __init__(self, ide, server, parent=None, width=20, height=20, left=0, top=0):
             super().__init__(ide, server)
 
+            self.children = {}
             self.set_parent(parent)
             self.set_width(width)
             self.set_height(height)
@@ -66,21 +67,41 @@ class Widgets:
         def play_sound(self, ide):
             self.get_parent().play_sound(ide)
 
+        def get_children(self):
+            return self.children
+
+        def add_child(self, child, move_child=True):
+            child.set_parent(self)
+            if move_child:
+                child.set_left(child.get_left() + self.get_left())
+                child.set_top(child.get_top() + self.get_top())
+            self.children[child.get_id().get_path_str()] = child
+
+        def on_removed(self):
+            for child in self.get_children().values():
+                child.on_removed()
+            super().on_removed()
+
         def draw(self):
-            pass
+            for child in self.get_children().values():
+                child.draw()
+
+        def tick(self):
+            super().tick()
+            for child in self.get_children().values():
+                child.tick()
+            self.tick_content()
 
         def tick_content(self):
             pass
 
-        def tick(self):
-            self.tick_content()
-
 
     class TextWidget(BaseWidget):
-        def __init__(self, ide, server, parent=None, width=20, height=20, left=0, top=0, text=""):
+        def __init__(self, ide, server, parent=None, width=20, height=20, left=0, top=0, text="", font_name="Exo 2 Regular"):
             super().__init__(ide, server, parent=parent, width=width, height=height, left=left, top=top)
 
             self.set_text(text)
+            self.set_font_name(font_name)
 
         def set_text(self, text):
             self.text = text
@@ -88,8 +109,17 @@ class Widgets:
         def get_text(self):
             return self.text
 
+        def set_font_name(self, font_name):
+            self.font_name = font_name
+
+        def get_font_name(self):
+            return self.font_name
+
+        def get_font_size(self):
+            return 5 * (self.get_width() / (len(self.get_text()) + 1))
+
         def tick_content(self):
-            self.draw_text(self.get_text(), 11, self.get_left(), self.get_top())
+            self.draw_text(self.get_text(), self.get_font_size(), font_name=self.get_font_name())
 
 
     class ButtonWidget(BaseWidget):
@@ -97,12 +127,10 @@ class Widgets:
             super().__init__(ide, server, parent=parent, width=width, height=height, left=left, top=top)
 
             self.label = label
+            self.add_child(Widgets.TextWidget(self.get_id(), self.get_server(), width=self.get_width() * 0.75, height=self.get_height(), left=0, top=0, text=self.get_label()))
 
         def get_label(self):
             return self.label
-
-        def tick_content(self):
-            self.draw_text(self.get_label(), 11, left=self.get_left(), top=self.get_top())
 
 
 class ScreenWidget(Widgets.BaseWidget):
@@ -110,34 +138,9 @@ class ScreenWidget(Widgets.BaseWidget):
         super().__init__(ide, server, parent, width, height, left, top)
 
         self.title = title
-        self.children = {}
 
     def get_title(self):
         return self.title
-
-    def get_children(self):
-        return self.children
-
-    def add_child(self, child, move_child=True):
-        child.set_parent(self)
-        if move_child:
-            child.set_left(child.get_left() + self.get_left())
-            child.set_top(child.get_top() + self.get_top())
-        self.children[child.get_id().get_path_str()] = child
-
-    def on_removed(self):
-        for child in self.get_children().values():
-            child.on_removed()
-        super().on_removed()
-
-    def draw(self):
-        for child in self.get_children().values():
-            child.draw()
-
-    def tick(self):
-        super().tick()
-        for child in self.get_children().values():
-            child.tick()
 
 
 class SaoirseClientWidgets:
