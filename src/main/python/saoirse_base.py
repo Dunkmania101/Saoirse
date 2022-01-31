@@ -1,7 +1,7 @@
 # This file is:
 # src/python/saoirse_base.py
 
-import time, os, logging
+import os, logging
 from enum import Enum
 
 logger = logging.getLogger("saoirse")
@@ -67,17 +67,24 @@ class Identifier():
     def get_path_str(self):
         return self.get_delimiter().join(self.get_path())
 
+    def __str__(self):
+        return self.get_path_str()
+
     def is_equal(self, other_in):
         return isinstance(other_in, Identifier) and other_in.get_path() == self.get_path()
 
     def append(self, other_path_in, update_self=True):
+        new_path = self.path.copy()
         if isinstance(other_path_in, list):
-            new_path = self.path.copy()
             new_path.extend(other_path_in)
-            if update_self:
-                self.set_path(new_path)
-                return self
-            return Identifier(new_path)
+        elif isinstance(other_path_in, str):
+            new_path.append(other_path_in)
+        else:
+            logger.warning(f"Failed to append invalid path {str(other_path_in)} to identifier {str(self)} as it is not of type list or str!")
+        if update_self:
+            self.set_path(new_path)
+            return self
+        return Identifier(new_path)
 
     def extend(self, other_in, update_self=True):
         if isinstance(other_in, Identifier):
@@ -106,33 +113,35 @@ class IdentifierEnum(Enum):
     def get_base_ide(self):
         return Identifier()
 
-    def __setattr__(self, name, value):
-        super().__setattr__(name, self.get_base_ide().append([value]))
+    def get_value(self):
+        return self.get_base_ide().extend(Identifier.get_id_from_str_list_or_id(self.value), False)
 
 
-class IdentifierObjPair():
-    def __init__(self, id_in=Identifier(), obj_in=None):
+class IdentifierObjGetterPair():
+    def __init__(self, obj_in=None, id_in=Identifier()):
+        self.obj = obj_in
         self.set_id(id_in)
 
-        self.obj = obj_in
-
     def is_equal(self, other_in):
-        return isinstance(other_in, IdentifierObjPair) and self.get_id().is_equal(other_in.get_id()) and self.get_obj() == other_in.get_obj()
+        return isinstance(other_in, IdentifierObjGetterPair) and self.get_id().is_equal(other_in.get_id()) and self.get_obj() == other_in.get_obj()
 
     def copy(self):
-        return IdentifierObjPair(self.get_obj(), self.get_id().copy())
+        return IdentifierObjGetterPair(self.get_obj(), self.get_id().copy())
 
     def set_id(self, id_in):
-        self.id = Identifier.get_id_from_str_list_or_id(id_in)
+        self.ide = Identifier.get_id_from_str_list_or_id(id_in)
 
     def get_id(self):
-        return self.id
+        return self.ide
 
-    def get_obj(self):
-        return self.obj
+    def get_obj(self, *args, **kwargs):
+        obj = self.obj(*args, **kwargs)
+        if hasattr(obj, "set_id"):
+            obj.set_id(self.get_id())
+        return obj
 
     def __str__(self):
-        return f"{self.id.get_path_str()} : {self.obj}"
+        return f"{str(self.get_id())} : {str(self.obj)}"
 
 
 class BaseRegistry():
@@ -152,69 +161,37 @@ class BaseRegistry():
             return self.entries[ide.get_path_str()]
         return None
 
+    def get_entries_under_category(self, category_id):
+        category_entries = {}
+        category_key = category_id.get_path_str()
+        for key, obj in self.get_entries_dict().items():
+            if key.startswith(category_key):
+                category_entries[key] = obj
+        return category_entries
+
     def contains_id(self, id_in):
         ide = Identifier.get_id_from_str_list_or_id(id_in)
         return ide.get_path_str() in self.get_entries_dict().keys()
 
-    def register_id_obj(self, id_in, obj_in):
+    def register_id_obj(self, obj_in, id_in):
         if isinstance(id_in, Identifier):
-            self.register_id_obj_pair(IdentifierObjPair(id_in, obj_in))
+            self.register_id_obj_pair(IdentifierObjGetterPair(obj_in, id_in), id_in)
 
-    def register_id_obj_pair(self, id_obj_pair_in):
-        if isinstance(id_obj_pair_in, IdentifierObjPair):
-            ide = id_obj_pair_in.get_id()
+    def register_id_obj_pair(self, id_obj_pair, ide = None):
+        if isinstance(id_obj_pair, IdentifierObjGetterPair):
+            if ide is None:
+                ide = id_obj_pair.get_id()
             if isinstance(ide, Identifier):
                 id_str = ide.get_path_str()
                 if id_str in self.get_entries_dict().keys():
-                    logger.warning(msg=f"Failed to register {id_obj_pair_in} as its id of {id_str} is alread registered!")
+                    logger.warning(msg=f"Failed to register {str(id_obj_pair)} as its id of {id_str} is alread registered!")
                 else:
-                    self.entries[id_str] = id_obj_pair_in
+                    id_obj_pair.set_id(ide)
+                    self.entries[id_str] = id_obj_pair
+            else:
+                logger.warning(msg=f"Failed to register {str(id_obj_pair)} as its id of {str(ide)} is not an Identifier!")
         else:
-            logger.warning(msg=f"Failed to register {id_obj_pair_in} as it is not an IdentifierObjectPair!")
-
-
-class BaseCategorizedRegistry(BaseRegistry):
-    def __init__(self):
-        super().__init__()
-
-    def register_category(self, category_id_in):
-        category_id = Identifier.get_id_from_str_list_or_id(category_id_in)
-        super().register_id_obj(category_id, BaseRegistry())
-
-    #def get_entries(self):
-    #    entries_out = {}
-    #    for key in self.entries.keys():
-    #        category = self.entries[key]
-    #        if isinstance(category, BaseRegistry):
-    #            for entry in category.get_entries():
-    #                if isinstance(entry, IdentifierObjPair):
-    #                    categorized_entry = entry.copy()
-    #                    entry_id = categorized_entry.get_id().copy()
-    #                    entry_id_path = entry_id.get_path()
-    #                    entry_id_path.insert(0, key)
-    #                    categorized_entry.set_id(Identifier(entry_id_path, entry_id.get_delimiter()))
-    #                    entries_out[categorized_entry.get_id().get_path_str()] = categorized_entry
-    #    return entries_out
-
-    def get_categories(self):
-        return super().get_entries_dict()
-
-    def get_category(self, category_id_in):
-        return super().get_entry(category_id_in).get_obj()
-
-    def register_id_obj_pair_under_category(self, id_obj_pair_in, category_id_in):
-        if isinstance(id_obj_pair_in, IdentifierObjPair):
-            if category_id_in.get_path_str() not in self.get_entries_dict().keys():
-                self.register_category(category_id_in)
-            self.get_category(category_id_in).register_id_obj_pair(id_obj_pair_in)
-
-    def register_id_obj_under_category(self, id_in, category_id_in, obj_pair_in):
-        self.register_id_obj_pair_under_category(IdentifierObjPair(id_in, obj_pair_in), category_id_in)
-
-    def get_id_obj_pair_under_category(self, category_id_in, obj_id_in):
-        category_id = Identifier.get_id_from_str_list_or_id(category_id_in)
-        obj_id = Identifier.get_id_from_str_list_or_id(obj_id_in)
-        return self.get_entry(category_id).get_obj().get_entry(obj_id)
+            logger.warning(msg=f"Failed to register {str(id_obj_pair)} as it is not an IdentifierObjectPair!")
 
 
 class ThreeDimensionalPosition():
@@ -365,7 +342,7 @@ class TickableObject():
         return 64
 
 
-class InteractableGameObject():
+class InteractableObject():
     def get_action_by_id(self, ide, actor):
         return None
 
@@ -376,20 +353,24 @@ class InteractableGameObject():
         return self.get_action_by_id(ActionIds.SECONDARY, actor)
 
 
-class MainGameObject(TickableObject):
+class MainGameObject(TickableObject, InteractableObject):
+    persist_data_key = "persist_data"
     def __init__(self, ide, server):
+        self.persist_data = {}
         self.ide = ide
         self.server = server
         self.on_created()
 
     def set_removed(self, removed=True):
         self.removed = removed
+        return self
 
     def on_created(self):
         self.set_removed(False)
+        return self
 
     def on_removed(self):
-        self.set_removed(True)
+        return self.set_removed(True)
 
     def get_server(self):
         return self.server
@@ -397,14 +378,23 @@ class MainGameObject(TickableObject):
     def get_id(self):
         return self.ide
 
+    def set_persist_data(self, data):
+        self.persist_data = data
+        return self
+
+    def get_persist_data(self):
+        return self.persist_data
+
     def set_data(self, data):
+        if self.persist_data_key in data.keys():
+            self.set_persist_data(data.get(self.persist_data_key))
         return self
 
     def get_data(self):
-        return {}
+        return {self.persist_data_key: self.get_persist_data()}
 
 
-class SpaceGameObject(MainGameObject, InteractableGameObject):
+class SpaceGameObject(MainGameObject):
     def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), three_dimensional_space=None):
         super().__init__(ide, server)
 
@@ -413,12 +403,14 @@ class SpaceGameObject(MainGameObject, InteractableGameObject):
 
     def set_pos(self, pos):
         self.pos = pos
+        return self
 
     def get_pos(self):
         return self.pos
 
     def set_three_dimensional_space(self, three_dimensional_space):
         self.three_dimensional_space = three_dimensional_space
+        return self
 
     def get_three_dimensional_space(self):
         return self.three_dimensional_space
@@ -465,7 +457,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
     def get_space_game_objects_dict(self):
         return self.space_game_objects
 
-    def get_space_game_objects(self):
+    def get_objects(self):
         return self.get_space_game_objects_dict().values()
 
     def get_g_constant(self):
@@ -481,29 +473,32 @@ class ThreeDimensionalSpace(SpaceGameObject):
         existing_objects = self.space_game_objects.get(pos_str, [])
         existing_objects.append(space_game_object)
         self.space_game_objects[pos_str] = existing_objects
+        return self
 
     def remove_space_game_object_at_pos(self, pos, check_space_game_object=None):
         for space_game_object in self.get_space_game_objects_at_pos(pos, check_space_game_object):
             self.space_game_objects.pop(space_game_object)
+        return self
 
     def replace_space_game_object_at_pos(self, pos, old_space_game_object, new_space_game_object):
         self.remove_space_game_object_at_pos(pos, old_space_game_object)
         self.add_space_game_object_at_pos(pos, new_space_game_object)
+        return self
 
     def get_space_game_objects_at_pos(self, pos, check_space_game_object=None):
         if check_space_game_object is None:
             return self.get_space_game_objects_dict().get(pos.to_str(), [])
         space_game_objects = []
-        for space_game_object in self.get_space_game_objects():
+        for space_game_object in self.get_objects():
             if space_game_object.get_pos() == pos and (check_space_game_object == space_game_object or check_space_game_object is None):
                 space_game_objects.append(space_game_object)
         return space_game_objects
 
     def get_nearest_obj_to_pos(self, pos, exclusions=[]):
-        if len(self.get_space_game_objects()) > 0:
-            nearest = self.get_space_game_objects()[0]
-            if len(self.get_space_game_objects()) > 1:
-                for obj in self.get_space_game_objects()[1:]:
+        if len(self.get_objects()) > 0:
+            nearest = self.get_objects()[0]
+            if len(self.get_objects()) > 1:
+                for obj in self.get_objects()[1:]:
                     if obj not in exclusions and obj.get_pos().get_distance_from_other(pos) < nearest.get_pos().get_distance_from_other(pos):
                         nearest = obj
             if nearest not in exclusions:
@@ -511,38 +506,45 @@ class ThreeDimensionalSpace(SpaceGameObject):
         return None
 
     def tick_space_game_object_gravity(self, space_game_object):
-        if len(self.get_space_game_objects()) > 1 and space_game_object.has_gravity():
+        if len(self.get_objects()) > 1 and space_game_object.has_gravity():
             nearest = self.get_nearest_obj_to_pos(space_game_object.get_pos(), [space_game_object])
             space_game_object.set_pos(space_game_object.get_pos().offset(space_game_object.get_pos().get_nearest_direction_to_other_pos(nearest.get_pos()), self.get_gravity_speed(space_game_object.get_mass(), nearest.get_mass(), nearest.get_pos().get_distance_from_other(space_game_object.get_pos()))))
+        return self
 
     def tick(self):
-        for space_game_object_set in self.get_space_game_objects():
+        for space_game_object_set in self.get_objects():
             for space_game_object in space_game_object_set:
                 space_game_object.tick()
                 self.tick_space_game_object_gravity(space_game_object)
+        return self
 
     class SaveDataKeys(Enum):
         IDE = "ide"
         POS = "pos"
         DATA = "data"
+        OBJECTS = "objects"
 
     def set_data(self, data):
-        for space_game_object_set_data in data.values():
-            for space_game_object_data in space_game_object_set_data.values():
-                if ThreeDimensionalSpace.SaveDataKeys.IDE in space_game_object_data.keys() and ThreeDimensionalSpace.SaveDataKeys.POS in space_game_object_data.keys():
-                    ide = Identifier(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE])
-                    space_game_object_pair = self.get_server().get_registry().get_entry(ide)
-                    if space_game_object_pair is not None:
-                        pos = ThreeDimensionalPosition.of_dict(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS])
-                        space_game_object = space_game_object_pair.get_obj()(ide, pos, self)
-                        if space_game_object is not None:
-                            space_game_object.set_data(space_game_object_data.get(ThreeDimensionalSpace.SaveDataKeys.DATA), {})
-                            self.add_space_game_object_at_pos(pos, space_game_object)
+        if ThreeDimensionalSpace.SaveDataKeys.OBJECTS.value in data.keys():
+            objects_data = data.get(ThreeDimensionalSpace.SaveDataKeys.OBJECTS.value)
+            for space_game_object_set_data in objects_data.values():
+                for space_game_object_data in space_game_object_set_data:
+                    if ThreeDimensionalSpace.SaveDataKeys.IDE.value in space_game_object_data.keys() and ThreeDimensionalSpace.SaveDataKeys.POS.value in space_game_object_data.keys():
+                        ide = Identifier(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value])
+                        space_game_object_pair = self.get_server().get_registry().get_entry(ide)
+                        if space_game_object_pair is not None:
+                            space_game_object = space_game_object_pair.get_obj()
+                            if space_game_object is not None:
+                                pos = ThreeDimensionalPosition.of_dict(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS.value])
+                                space_game_object.set_pos(pos)
+                                space_game_object.set_data(space_game_object_data.get(ThreeDimensionalSpace.SaveDataKeys.DATA.value))
+                                self.add_space_game_object_at_pos(pos, space_game_object)
 
     def get_data(self):
         data = super().get_data()
-        for i, space_game_object_set in enumerate(self.get_space_game_objects()):
-            space_game_object_set_data = {}
+        objects_data = {}
+        for i, space_game_object_set in self.get_space_game_objects_dict().items():
+            space_game_object_set_data = []
             for i1, space_game_object in enumerate(space_game_object_set):
                 if space_game_object is not None:
                     ide_path = space_game_object.get_id().get_path()
@@ -552,8 +554,9 @@ class ThreeDimensionalSpace(SpaceGameObject):
                     space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value] = ide_path
                     space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS.value] = pos_dict
                     space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.DATA.value] = saved_data
-                    space_game_object_set_data[str(i1)] = space_game_object_data
-            data[str(i)] = space_game_object_set_data
+                    space_game_object_set_data.append(space_game_object_data)
+            objects_data[str(i)] = space_game_object_set_data
+        data[ThreeDimensionalSpace.SaveDataKeys.OBJECTS.value] = objects_data
         return data
 
 
@@ -566,7 +569,6 @@ class BaseServer(MainGameObject):
         self.registry = registry
         self.registry.server = self
         self.spaces = {}
-        self.killed = False
 
     def get_registry(self):
         return self.registry
@@ -576,6 +578,7 @@ class BaseServer(MainGameObject):
 
     def add_three_dimensional_space(self, three_dimensional_space):
         self.spaces[three_dimensional_space.get_id().get_path_str()] = three_dimensional_space
+        return self
 
     def get_three_dimensional_space(self, ide):
         return self.spaces.get(ide.get_path_str(), None)
@@ -583,6 +586,7 @@ class BaseServer(MainGameObject):
     def tick(self):
         for space in self.get_spaces().values():
             space.tick()
+        return self
 
     def get_data(self):
         spaces_data = {}
@@ -591,8 +595,11 @@ class BaseServer(MainGameObject):
         return {self.spaces_key: spaces_data}
 
     def set_data(self, data):
-        for space_key in data.keys():
-            space_ide = Identifier(space_key)
-            if space_key not in self.get_spaces().keys():
-                self.add_three_dimensional_space(ThreeDimensionalSpace(space_ide, self))
-            self.get_three_dimensional_space(space_ide).set_data(data.get(space_key))
+        if self.spaces_key in data.keys():
+            spaces_data = data.get(self.spaces_key)
+            for space_key in spaces_data.keys():
+                space_ide = Identifier(space_key)
+                if space_key not in self.get_spaces().keys():
+                    self.add_three_dimensional_space(ThreeDimensionalSpace(space_ide, self))
+                self.get_three_dimensional_space(space_ide).set_data(spaces_data.get(space_key))
+        return self
