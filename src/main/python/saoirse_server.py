@@ -4,7 +4,7 @@
 import sys, os, time
 #from msgpack import pack as mpack, unpack as munpack
 from json import dumps as jdumps, loads as jloads
-from saoirse_base import Identifier, IdentifierEnum, BaseRegistry, Item, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer
+from saoirse_base import expand_full_path, Identifier, IdentifierEnum, BaseRegistry, Item, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer
 
 
 saoirse_id = "saoirse"
@@ -15,13 +15,56 @@ class SaoirseIdentifierEnum(IdentifierEnum):
         return Identifier(saoirse_id)
 
 
+class Items:
+    class Equipment:
+        class Tools:
+            class BaseToolItem(Item):
+                integrity_key = "integrity"
+
+                def __init__(self, ide, server, pos=..., space=None, integrity=100):
+                    super().__init__(ide, server, pos=pos, space=space)
+
+                    self.set_integrity(integrity)
+
+                def set_integrity(self, integrity=100):
+                    self.integrity = integrity
+
+                def get_integrity(self):
+                    return self.integrity
+
+                def set_data(self, data):
+                    if self.integrity_key in data.keys():
+                        self.set_integrity(data.get(self.integrity_key))
+                    return super().set_data(data)
+
+                def get_data(self):
+                    data = super().get_data()
+                    data[self.integrity_key] = self.get_integrity()
+                    return data
+
+            class HatchetItem(BaseToolItem):
+                def __init__(self, ide, server, pos=..., space=None, integrity=100):
+                    super().__init__(ide, server, pos=pos, space=space, integrity=integrity)
+
+
 class Spaces:
     class NormalSpace(ThreeDimensionalSpace):
         def __init__(self, server):
-            super().__init__(SaoirseRegistry.Identifiers.SPACES.normal.get_value(), server)
+            super().__init__(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier(), server)
 
+        def generate_terrain_at_pos(self, pos=ThreeDimensionalPosition.get_origin()):
             # TEST - adding objects
-            self.add_space_game_object_at_pos(ThreeDimensionalPosition(99, 53, 215), server.get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_value()).get_obj())
+            if pos == ThreeDimensionalPosition.get_origin():
+                self.add_space_game_object_at_pos(pos.get_relative(ThreeDimensionalPosition(99, 53, 215)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_identifier()).get_obj())
+
+    class GhostlySpace(ThreeDimensionalSpace):
+        def __init__(self, server):
+            super().__init__(SaoirseRegistry.Identifiers.SPACES.ghostly.get_identifier(), server)
+
+        def generate_terrain_at_pos(self, pos=ThreeDimensionalPosition.get_origin()):
+            # TEST - adding objects
+            self.add_space_game_object_at_pos(pos.get_relative(ThreeDimensionalPosition(99, 53, 215)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_identifier()).get_obj())
+
 
 
 class SaoirseRegistry(BaseRegistry):
@@ -41,7 +84,7 @@ class SaoirseRegistry(BaseRegistry):
 
     def register_items(self):
         for ide in SaoirseRegistry.Identifiers.ITEMS:
-            self.register_item(ide.get_value(), None)
+            self.register_item(ide.get_identifier(), None)
 
     def register_item(self, ide, item_obj=None):
         if item_obj is None:
@@ -50,7 +93,7 @@ class SaoirseRegistry(BaseRegistry):
 
     def register_tiles(self):
         for ide in SaoirseRegistry.Identifiers.TILES:
-            self.register_tile(ide.get_value(), add_item=True)
+            self.register_tile(ide.get_identifier(), add_item=True)
 
     def register_tile(self, ide, tile_obj=None, add_item=False, item_obj=None):
         if tile_obj is None:
@@ -62,17 +105,8 @@ class SaoirseRegistry(BaseRegistry):
         self.register_id_obj(tile_obj, ide)
 
     def register_fluids(self):
-        for ide_str in [
-                "water",
-                "lava",
-                "milk",
-                "honey",
-                "slime",
-                "oil",
-                "tar",
-        ]:
-            ide = Identifier([saoirse_id, ide_str])
-            self.register_fluid(ide)
+        for ide in SaoirseRegistry.Identifiers.FLUIDS:
+            self.register_fluid(ide.get_identifier())
 
     def register_fluid(self, ide, fluid_obj=None):
         if fluid_obj is None:
@@ -88,8 +122,12 @@ class SaoirseRegistry(BaseRegistry):
         self.register_id_obj(entity_obj, ide)
 
     def register_spaces(self):
-        self.register_space(SaoirseRegistry.Identifiers.SPACES.normal.get_value(),
+        self.register_space(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier(),
                             lambda : Spaces.NormalSpace(server=self.get_server()))
+
+        self.register_space(SaoirseRegistry.Identifiers.SPACES.ghostly.get_identifier(),
+                            lambda : Spaces.GhostlySpace(server=self.get_server()))
+
 
     def register_space(self, ide, space_obj=None):
         if space_obj is None:
@@ -101,7 +139,9 @@ class SaoirseRegistry(BaseRegistry):
         class ITEMS(SaoirseIdentifierEnum):
             def get_base_ide(self):
                 return Identifier("items").extend(super().get_base_ide())
+
             pebble = "pebble"
+            ##########
             paper = "paper"
             ##########
             silkworm = "silkworm"
@@ -128,6 +168,7 @@ class SaoirseRegistry(BaseRegistry):
         class TILES(SaoirseIdentifierEnum):
             def get_base_ide(self):
                 return Identifier("tiles").extend(super().get_base_ide())
+
             dirt = "dirt"
             gravel = "gravel"
             sand = "sand"
@@ -145,17 +186,37 @@ class SaoirseRegistry(BaseRegistry):
             ironwood_log = "ironwood_log"
             hickory_log = "hickory_log"
 
+        class FLUIDS(SaoirseIdentifierEnum):
+            def get_base_ide(self):
+                return Identifier("fluids").extend(super().get_base_ide())
+
+            water = "water"
+            lava = "lava"
+            milk = "milk"
+            honey = "honey"
+            slime = "slime"
+            oil = "oil"
+            tar = "tar"
+
+        class GASSES(SaoirseIdentifierEnum):
+            def get_base_ide(self):
+                return Identifier("gasses").extend(super().get_base_ide())
+
+            oxygen = "oxygen"
+
         class SPACES(SaoirseIdentifierEnum):
             def get_base_ide(self):
                 return Identifier("spaces").extend(super().get_base_ide())
+
             normal = "normal"
+            ghostly = "ghostly"
 
 
 class SaoirseServer(BaseServer):
-    def __init__(self, save_file="world.sworld"):
+    def __init__(self, save_file="world.json"):
         super().__init__(saoirse_id, SaoirseRegistry(self))
 
-        self.save_file = save_file
+        self.set_save_file(save_file)
 
         if os.path.isfile(self.get_save_file()):
             self.read_from_file()
@@ -163,9 +224,14 @@ class SaoirseServer(BaseServer):
             self.generate_spaces()
 
     def generate_spaces(self):
-        # for space in self.get_registry().get_entries_under_category(Identifier("spaces")).values():
-            # self.add_three_dimensional_space(space.get_obj(server=self))
-        self.add_three_dimensional_space(self.get_registry().get_entry(SaoirseRegistry.Identifiers.SPACES.normal.get_value()).get_obj())
+        for space_ide in SaoirseRegistry.Identifiers.SPACES:
+            self.add_space(self.get_registry().get_entry(space_ide.get_identifier()).get_obj())
+
+        for space in self.get_spaces():
+            space.generate_terrain_at_pos()
+
+    def set_save_file(self, save_file="world.json"):
+        self.save_file = save_file
 
     def get_save_file(self):
         return self.save_file
@@ -192,7 +258,41 @@ class SaoirseServer(BaseServer):
 
 
 def main(args):
-    server = SaoirseServer()
+    save_file = "saoirse_world.json"
+
+    help_msg = """
+    Server program for the game Saoirse
+
+    Usage (depends on which executable form is being run):
+
+    For binary releases:
+
+    saoirse_server OPTIONS
+    saoirse_server.exe OPTIONS
+
+    For Python source files:
+
+    pypy3 saoirse_server.py OPTIONS
+    python3 saoirse_server.py OPTIONS
+
+    Valid OPTIONS:
+
+    --save_file=SAVEFILE                                Sets the file for saving all game data to SAVEFILE
+    """
+
+    arg_key_help = ("--help", "-h")
+    arg_key_save_file = "--save_file="
+
+    if len(args) > 1:
+        for arg in args[1:]:
+            if arg.startswith(arg_key_help):
+                print(help_msg)
+                return
+            if arg.startswith(arg_key_save_file):
+                print(arg)
+                save_file = expand_full_path(arg.replace(arg_key_save_file, ""))
+
+    server = SaoirseServer(save_file = save_file)
     while not server.removed:
         server.tick()
         time.sleep(1 / server.get_ticks_per_second())

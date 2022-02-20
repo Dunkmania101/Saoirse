@@ -5,6 +5,12 @@ import os, logging
 from enum import Enum
 
 logger = logging.getLogger("saoirse")
+
+
+def expand_full_path(path_str):
+    return os.path.expandvars(os.path.expanduser(path_str))
+
+
 #class Logger():
 #    class LogLevels(Enum):
 #        LOG_LEVEL_INFO="info"
@@ -113,7 +119,7 @@ class IdentifierEnum(Enum):
     def get_base_ide(self):
         return Identifier()
 
-    def get_value(self):
+    def get_identifier(self):
         return self.get_base_ide().extend(Identifier.get_id_from_str_list_or_id(self.value), False)
 
 
@@ -201,7 +207,7 @@ class ThreeDimensionalPosition():
         self.z = z
 
     def get_origin():
-        return ThreeDimensionalPosition()
+        return ThreeDimensionalPosition(x = 0, y = 0, z = 0)
 
     def get_x(self):
         return self.x
@@ -286,6 +292,22 @@ class ThreeDimensionalPosition():
 
         return self
 
+    def get_relative(self, other):
+        return ThreeDimensionalPosition(self.get_x() + other.get_x(), self.get_y() + other.get_y(), self.get_z() + other.get_z())
+
+    def approach(self, other, distance):
+        steps = self.get_distance_from_other(other) / distance
+        return self.get_relative(ThreeDimensionalPosition(self.get_distance_from_other_x(other) / steps, self.get_distance_from_other_y(other) / steps, self.get_distance_from_other_z(other) / steps))
+
+    def trace(self, other, resolution=1):
+        positions = [self]
+        pos = self.approach(other, distance=resolution)
+        while pos.get_distance_from_other(other) < resolution * 2:
+            positions.append(pos)
+            pos = pos.approach(other, distance=resolution)
+        positions.append(other)
+        return positions
+
     def get_nearest_direction_to_other_pos(self, other):
         dist_x = self.get_distance_from_other_x(other)
         dist_y = self.get_distance_from_other_y(other)
@@ -305,6 +327,38 @@ class ThreeDimensionalPosition():
                 return ThreeDimensionalPosition.Direction.BACK
             return ThreeDimensionalPosition.Direction.FRONT
 
+    def is_inside_shape(self, shape):
+        # I'm quite proud of this approach as I came up with it on my own.
+        # It works by checking whether self is between each pair of corners in shape while only considering the axis of the line connecting them.
+        if isinstance(shape, ThreeDimensionalShape):
+            corners = []
+            for box in shape.get_boxes():
+                corners.extend(box.get_corners())
+        elif isinstance(shape, ThreeDimensionalShape.ThreeDimensionalBox):
+            corners = shape.get_corners()
+        else:
+            return False
+        if len(corners) > 1:
+            for i, corner in enumerate(corners):
+                for corner1 in corners[i:]:
+                    # This check tests whether self is between the two corners while ignoring whether it falls directly on the line between. It's a modified version of the formula found in the following answer: https://stackoverflow.com/questions/11907947/how-to-check-if-a-point-lies-on-a-line-between-2-other-points#11908158
+                    dxl = corner1.get_x() - corner.get_x()
+                    dyl = corner1.get_y() - corner.get_y()
+
+                    if (abs(dxl) >= abs(dyl)):
+                        if dxl > 0:
+                            if not corner.get_x() <= self.get_x() and self.get_x() <= corner1.get_x():
+                                return False
+                        elif not corner1.get_x() <= self.get_x() and self.get_x() <= corner.get_x():
+                            return False
+                    if dyl > 0:
+                        if not corner.get_y() <= self.get_y() and self.get_y() <= corner1.get_y():
+                            return False
+                    elif not corner1.get_y() <= self.get_y() and self.get_y() <= corner.get_y():
+                        return False
+            return True
+        return self in corners
+
     class Axies(Enum):
         X = "x"
         Y = "y"
@@ -317,7 +371,7 @@ class ThreeDimensionalPosition():
         return str(self.to_dict())
 
     def of_dict(pos_dict):
-        return ThreeDimensionalPosition(pos_dict.get(ThreeDimensionalPosition.Axies.X, 0), pos_dict.get(ThreeDimensionalPosition.Axies.Y, 0), pos_dict.get(ThreeDimensionalPosition.Axies.Z, 0))
+        return ThreeDimensionalPosition(pos_dict.get(ThreeDimensionalPosition.Axies.X.value, 0), pos_dict.get(ThreeDimensionalPosition.Axies.Y.value, 0), pos_dict.get(ThreeDimensionalPosition.Axies.Z.value, 0))
 
     def of_str(pos_str):
         return ThreeDimensionalPosition.of_dict(dict(pos_str))
@@ -358,8 +412,11 @@ class MainGameObject(TickableObject, InteractableObject):
     def __init__(self, ide, server):
         self.persist_data = {}
         self.ide = ide
-        self.server = server
+        self.set_server(server)
         self.on_created()
+
+    def set_server(self, server):
+        self.server = server
 
     def set_removed(self, removed=True):
         self.removed = removed
@@ -394,12 +451,78 @@ class MainGameObject(TickableObject, InteractableObject):
         return {self.persist_data_key: self.get_persist_data()}
 
 
+class ThreeDimensionalShape():
+    def __init__(self, boxes=[]):
+        self.set_boxes(boxes)
+
+    def get_contained_positions(self, resolution=1):
+        positions = []
+        for box in self.get_boxes():
+            for pos in box.get_contained_positions(resolution=resolution):
+                if pos not in positions:
+                    positions.append(pos)
+        return positions
+
+    def set_boxes(self, boxes=[]):
+        self.boxes = boxes
+
+    def get_boxes(self):
+        return self.boxes
+
+    def add_box(self, box):
+        self.boxes.append(box)
+
+    def merge(self, other, update_self=True):
+        other_boxes = []
+        if isinstance(other, ThreeDimensionalShape):
+            other_boxes = other.get_boxes().copy()
+        if not update_self:
+            other_boxes.extend(self.get_boxes())
+            return ThreeDimensionalShape(other_boxes)
+        else:
+            self.boxes.extend(other_boxes)
+            return self
+
+    class ThreeDimensionalBox():
+        def __init__(self, corners=[ThreeDimensionalPosition.get_origin()] * 4, textures=[]):
+            self.set_corners(corners)
+            self.set_textures(textures)
+
+        def set_corners(self, corners=[ThreeDimensionalPosition.get_origin()] * 4):
+            self.corners = corners
+
+        def get_corners(self):
+            return self.corners
+
+        def set_textures(self, textures):
+            self.textures = textures
+
+        def get_textures(self):
+            return self.textures
+
+        def get_wireframe_positions(self, resolution=1):
+            positions = self.get_corners().copy()
+            for i, corner in enumerate(positions):
+                for corner1 in positions[i:]:
+                    for pos in corner.trace(corner1, resolution=resolution):
+                        if pos not in positions:
+                            positions.append(pos)
+            return positions
+
+        def get_contained_positions(self, resolution=1):
+            # This works because it traces all points in self's wireframe, filling it
+            return ThreeDimensionalShape.ThreeDimensionalBox(corners=self.get_wireframe_positions(resolution=resolution)).get_wireframe_positions()
+
+
 class SpaceGameObject(MainGameObject):
-    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), three_dimensional_space=None):
+    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), space=None):
         super().__init__(ide, server)
 
         self.set_pos(pos)
-        self.set_three_dimensional_space(three_dimensional_space)
+        self.set_current_space(space)
+
+    def get_model(self):
+        return ThreeDimensionalShape()
 
     def set_pos(self, pos):
         self.pos = pos
@@ -408,12 +531,12 @@ class SpaceGameObject(MainGameObject):
     def get_pos(self):
         return self.pos
 
-    def set_three_dimensional_space(self, three_dimensional_space):
-        self.three_dimensional_space = three_dimensional_space
+    def set_current_space(self, space):
+        self.space = space
         return self
 
-    def get_three_dimensional_space(self):
-        return self.three_dimensional_space
+    def get_current_space(self):
+        return self.space
 
     def has_gravity(self):
         return True
@@ -423,42 +546,52 @@ class SpaceGameObject(MainGameObject):
 
 
 class Item(SpaceGameObject):
-    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), three_dimensional_space=None):
-        super().__init__(ide, server, pos, three_dimensional_space)
+    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), space=None):
+        super().__init__(ide, server, pos, space)
 
 
 class Tile(SpaceGameObject):
-    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), three_dimensional_space=None):
-        super().__init__(ide, server, pos, three_dimensional_space)
+    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), space=None):
+        super().__init__(ide, server, pos, space)
 
 
 class Fluid(SpaceGameObject):
-    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), three_dimensional_space=None):
-        super().__init__(ide, server, pos, three_dimensional_space)
+    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), space=None):
+        super().__init__(ide, server, pos, space)
 
 
 class Entity(SpaceGameObject):
-    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), three_dimensional_space=None):
-        super().__init__(ide, server, pos, three_dimensional_space)
+    def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), space=None):
+        super().__init__(ide, server, pos, space)
 
     def get_agenda(self):
         return []
 
 
 class ThreeDimensionalSpace(SpaceGameObject):
-    def __init__(self, ide, server, three_dimensional_space=None):
-        super().__init__(ide, server, three_dimensional_space)
+    def __init__(self, ide, server, spawn_pos=ThreeDimensionalPosition.get_origin()):
+        super().__init__(ide, server, self)
 
         self.space_game_objects = {}
+        self.set_spawn_pos(spawn_pos)
 
     def get_server(self):
         return self.server
+
+    def set_spawn_pos(self, pos=ThreeDimensionalPosition.get_origin()):
+        self.spawn_pos = pos
+
+    def get_spawn_pos(self):
+        return self.spawn_pos
+
+    def generate_terrain_at_pos(self, pos=ThreeDimensionalPosition.get_origin()):
+        pass
 
     def get_space_game_objects_dict(self):
         return self.space_game_objects
 
     def get_objects(self):
-        return self.get_space_game_objects_dict().values()
+        return list(self.get_space_game_objects_dict().values())
 
     def get_g_constant(self):
         return 6.67 * (10**-11)
@@ -468,7 +601,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
 
     def add_space_game_object_at_pos(self, pos, space_game_object):
         space_game_object.set_pos(pos)
-        space_game_object.set_three_dimensional_space(self)
+        space_game_object.set_current_space(self)
         pos_str = pos.to_str()
         existing_objects = self.space_game_objects.get(pos_str, [])
         existing_objects.append(space_game_object)
@@ -494,7 +627,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
                 space_game_objects.append(space_game_object)
         return space_game_objects
 
-    def get_nearest_obj_to_pos(self, pos, exclusions=[]):
+    def get_nearest_obj_set_to_pos(self, pos, exclusions=[]):
         if len(self.get_objects()) > 0:
             nearest = self.get_objects()[0]
             if len(self.get_objects()) > 1:
@@ -507,7 +640,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
 
     def tick_space_game_object_gravity(self, space_game_object):
         if len(self.get_objects()) > 1 and space_game_object.has_gravity():
-            nearest = self.get_nearest_obj_to_pos(space_game_object.get_pos(), [space_game_object])
+            nearest = self.get_nearest_obj_set_to_pos(space_game_object.get_pos(), [space_game_object])
             space_game_object.set_pos(space_game_object.get_pos().offset(space_game_object.get_pos().get_nearest_direction_to_other_pos(nearest.get_pos()), self.get_gravity_speed(space_game_object.get_mass(), nearest.get_mass(), nearest.get_pos().get_distance_from_other(space_game_object.get_pos()))))
         return self
 
@@ -545,13 +678,13 @@ class ThreeDimensionalSpace(SpaceGameObject):
         objects_data = {}
         for i, space_game_object_set in self.get_space_game_objects_dict().items():
             space_game_object_set_data = []
-            for i1, space_game_object in enumerate(space_game_object_set):
+            for space_game_object in space_game_object_set:
                 if space_game_object is not None:
-                    ide_path = space_game_object.get_id().get_path()
+                    ide_path_str = space_game_object.get_id().get_path_str()
                     pos_dict = space_game_object.get_pos().to_dict()
                     saved_data = space_game_object.get_data()
                     space_game_object_data = {}
-                    space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value] = ide_path
+                    space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value] = ide_path_str
                     space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS.value] = pos_dict
                     space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.DATA.value] = saved_data
                     space_game_object_set_data.append(space_game_object_data)
@@ -562,6 +695,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
 
 class BaseServer(MainGameObject):
     spaces_key = "spaces"
+    spawn_space_key = "spawn_space"
 
     def __init__(self, ide, registry):
         super().__init__(ide, self)
@@ -573,24 +707,30 @@ class BaseServer(MainGameObject):
     def get_registry(self):
         return self.registry
 
-    def get_spaces(self):
+    def get_spaces_dict(self):
         return self.spaces
 
-    def add_three_dimensional_space(self, three_dimensional_space):
-        self.spaces[three_dimensional_space.get_id().get_path_str()] = three_dimensional_space
+    def get_spaces(self):
+        return list(self.get_spaces_dict().values())
+
+    def add_space(self, space):
+        self.spaces[space.get_id().get_path_str()] = space
         return self
 
-    def get_three_dimensional_space(self, ide):
+    def get_current_space(self, ide):
         return self.spaces.get(ide.get_path_str(), None)
 
+    def set_spawn_space(self, space_id):
+        self.spawn_point = {self.spawn_space_key: space_id.get_path()}
+
     def tick(self):
-        for space in self.get_spaces().values():
+        for space in self.get_spaces_dict().values():
             space.tick()
         return self
 
     def get_data(self):
         spaces_data = {}
-        for space in self.get_spaces().values():
+        for space in self.get_spaces_dict().values():
             spaces_data[space.get_id().get_path_str()] = space.get_data()
         return {self.spaces_key: spaces_data}
 
@@ -599,7 +739,9 @@ class BaseServer(MainGameObject):
             spaces_data = data.get(self.spaces_key)
             for space_key in spaces_data.keys():
                 space_ide = Identifier(space_key)
-                if space_key not in self.get_spaces().keys():
-                    self.add_three_dimensional_space(ThreeDimensionalSpace(space_ide, self))
-                self.get_three_dimensional_space(space_ide).set_data(spaces_data.get(space_key))
+                if space_key not in self.get_spaces_dict().keys():
+                    space = self.get_registry().get_entry(space_ide)
+                    if isinstance(space, IdentifierObjGetterPair):
+                        self.add_space(space.get_obj())
+                self.get_current_space(space_ide).set_data(spaces_data.get(space_key))
         return self
