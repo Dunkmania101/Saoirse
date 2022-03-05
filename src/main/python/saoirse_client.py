@@ -1,20 +1,50 @@
 # This file is:
 # src/python/saoirse_client.py
 
+
+"""
+MIT License
+
+Copyright (c) 2022 Duncan Brasher (Dunkmania101)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
+
 import sys, pyglet
 from pyglet.gl import glEnable, glClearColor, GL_DEPTH_TEST, GL_CULL_FACE
-from saoirse_base import expand_full_path, Identifier, MainGameObject, InteractableObject, SpaceGameObject, ThreeDimensionalShape
+from saoirse_base import logger, expand_full_path, ThreeDimensionalPosition, Identifier, MainGameObject, InteractableObject, SpaceGameObject, ThreeDimensionalShape
 from saoirse_server import saoirse_id, SaoirseServer, SaoirseIdentifierEnum
+
+
+default_font = "Exo 2 Regular"
 
 
 class BaseWidgets:
     class BaseWidget(MainGameObject, InteractableObject):
         def __init__(self, ide, server, current_space=None, parent=None, width=20, height=20, left=0, top=0):
+            self.set_parent(parent)
+
             super().__init__(ide, server)
 
             self.children = {}
             self.set_current_space(current_space)
-            self.set_parent(parent)
             self.set_width(width)
             self.set_height(height)
             self.set_left(left)
@@ -87,11 +117,20 @@ class BaseWidgets:
         def draw_model(self, ide, left=0, top=0, depth=0, rotX=0, rotY=0, rotZ=0):
             self.get_parent().draw_model(ide, self.get_top() + top, self.get_left() + left, depth, rotX, rotY, rotZ)
 
-        def draw_text(self, text, font_size=11, left=0, top=0, font_name="Exo 2 Regular", color_red=255, color_green=255, color_blue=255, color_alpha=255):
+        def draw_text(self, text, font_size=11, left=0, top=0, font_name=default_font, color_red=255, color_green=255, color_blue=255, color_alpha=255):
             self.get_parent().draw_text(text=text, font_size=font_size, left=self.get_left() + left, top=self.get_top() + top, font_name=font_name, color_red=color_red, color_green=color_green, color_blue=color_blue, color_alpha=color_alpha)
 
         def play_sound(self, ide):
             self.get_parent().play_sound(ide)
+
+        def set_server(self, server):
+            if self.get_parent() is not None:
+                self.get_parent().set_server(server)
+
+        def get_server(self):
+            if self.get_parent() is not None:
+                return self.get_parent().get_server()
+            return None
 
         def on_removed(self):
             for child in self.get_children().values():
@@ -117,7 +156,7 @@ class BaseWidgets:
 
 
     class TextWidget(BaseWidget):
-        def __init__(self, ide, server, current_space=None, parent=None, width=20, height=20, left=0, top=0, text="", font_name="Exo 2 Regular", color_red=255, color_green=255, color_blue=255, color_alpha=255):
+        def __init__(self, ide, server, current_space=None, parent=None, width=20, height=20, left=0, top=0, text="", font_name=default_font, color_red=255, color_green=255, color_blue=255, color_alpha=255):
             super().__init__(ide, server, current_space=current_space, parent=parent, width=width, height=height, left=left, top=top)
 
             self.set_text(text)
@@ -233,6 +272,22 @@ class SaoirseClientWidgets:
             def __init__(self, server, current_space=None, parent=None):
                 super().__init__(SaoirseClientWidgets.ClientScreens.ScreenIdentifiers.world.get_identifier(), server, current_space=current_space, parent=parent, title="")
 
+                self.set_player_id("Dunkmania101")
+                self.connect_with_server()
+
+            def set_player_id(self, ide):
+                self.player_id = ide
+
+            def get_player_id(self):
+                return self.player_id
+
+            def get_player_entity(self):
+                return self.get_server().get_player_by_id(self.get_player_id())
+
+            def connect_with_server(self):
+                self.get_server().add_player(self.get_player_id())
+                self.get_player_entity().set_pos(self.get_player_entity().get_pos().offset(ThreeDimensionalPosition.Direction.FRONT, 3))
+
             def tick_content(self):
                 if self.get_current_space() is not None:
                     for obj_set in self.get_current_space().get_objects():
@@ -256,12 +311,12 @@ class SaoirseClientWidgets:
                 super().__init__(SaoirseClientWidgets.ClientScreens.ScreenIdentifiers.main.get_identifier(), server, parent=parent, width=width, height=height, left=left, top=top, title=title)
 
             def draw_content(self):
-                self.add_child(SaoirseClientWidgets.ClientScreens.SaoirseClientWorldScreen(self.get_server(), self))
+                self.add_child(SaoirseClientWidgets.ClientScreens.SaoirseClientWorldScreen(self.get_server(), None, self))
                 self.add_child(SaoirseClientWidgets.ClientWidgets.Buttons.SaoirseClientSingleplayerButton(self.get_server(), self))
 
             def tick_content(self):
                 # pyglet.resource.image("resources/saoirse/media/pic1.png")
-                self.draw_model(Identifier(["resources", saoirse_id, "media", "box1.obj"]), 5, 5, 22, 2.5, 2.3, 2.1)
+                self.draw_model(Identifier(["resources", saoirse_id, "media", "box1.obj"]), 5, 5, 5, 2.5, 2.3, 2.1)
 
 
 class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
@@ -277,10 +332,10 @@ class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
         self.draw()
 
         self.window = pyglet.window.Window(width=self.get_width(), height=self.get_height(), resizable=True, caption=self.get_title())
+        self.window.projection = pyglet.window.Mat4.perspective_projection(0, self.get_width(), 0, self.get_height(), z_near=0.1, z_far=255)
         glClearColor(0, 0, 0, 1)
 
-        self.batch_3d = pyglet.graphics.Batch()
-        self.batch_2d = pyglet.graphics.Batch()
+        self.batch = pyglet.graphics.Batch()
 
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_CULL_FACE)
@@ -294,10 +349,7 @@ class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
         @self.window.event
         def on_draw():
             self.window.clear()
-            self.window.projection = pyglet.window.Mat4.perspective_projection(0, self.get_width(), 0, self.get_height(), z_near=0.1, z_far=255)
-            self.batch_3d.draw()
-            self.window.projection = pyglet.window.Mat4.perspective_projection(0, self.get_width(), 0, self.get_height(), z_near=-255, z_far=255)
-            self.batch_2d.draw()
+            self.batch.draw()
             for obj in self.render_que:
                 if hasattr(obj, "delete"):
                     obj.delete()
@@ -315,6 +367,12 @@ class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
     def get_data_dir(self):
         return self.data_dir
 
+    def set_server(self, server):
+        self.server = server
+
+    def get_server(self):
+        return self.server
+
     def draw_content(self):
         # TEST: Create a server
         self.set_server(SaoirseServer())
@@ -322,7 +380,7 @@ class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
         self.add_child(SaoirseClientWidgets.ClientScreens.SaoirseClientMainScreen(self.get_server(), self))
 
     def draw_image(self, ide, left, top):
-        self.render_que.append(pyglet.sprite.Sprite(pyglet.resource.image(ide.get_file_path()), x=left, y=top, batch=self.batch_2d))
+        self.render_que.append(pyglet.sprite.Sprite(pyglet.resource.image(ide.get_file_path()), x=left, y=top, batch=self.batch))
 
     def draw_model_gl(self, model, left=0, top=0, depth=0, rotX=0, rotY=0, rotZ=0):
         if isinstance(model, pyglet.model.Model):
@@ -332,21 +390,23 @@ class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
 
     def draw_model(self, ide_or_model, left=0, top=0, depth=0, rotX=0, rotY=0, rotZ=0):
         if isinstance(ide_or_model, Identifier):
-            model = pyglet.resource.model(ide_or_model.get_file_path(), batch=self.batch_3d)
-            self.draw_model_gl(model, left, top, depth, rotX, rotY, rotZ)
+            model = pyglet.resource.model(ide_or_model.get_file_path(), batch=self.batch)
+            self.draw_model_gl(model, left=left, top=top, depth=depth, rotX=rotX, rotY=rotY, rotZ=rotZ)
         elif isinstance(ide_or_model, ThreeDimensionalShape):
             for box in ide_or_model.get_boxes():
                 model = pyglet.model.Model(pyglet.graphics.vertex_list("v3f", ((float(c.get_pos().get_x()), float(c.get_pos().get_y()), float(c.get_pos().get_z())) for c in box.get_corners())), groups=[pyglet.model.TexturedMaterialGroup(material=pyglet.model.Material("base", 1, 1, 1, 1, 1), texture=pyglet.resource.texture(texture)) for texture in box.get_textures()], batch=self.batch_3d)
                 self.draw_model_gl(model, left, top, depth, rotX, rotY, rotZ)
+            else:
+                logger.warning(f"Unable to draw {str(ide_or_model)} as a model as it is not an Identifier or a ThreeDimensionalShape!")
 
-    def draw_text(self, text, font_size=11, left=0, top=0, font_name="Exo 2 Regular", color_red=255, color_green=255, color_blue=255, color_alpha=255):
+    def draw_text(self, text, font_size=11, left=0, top=0, font_name=default_font, color_red=255, color_green=255, color_blue=255, color_alpha=255):
         self.render_que.append(pyglet.text.Label(
                           text=text,
                           font_size=font_size,
                           font_name=font_name,
                           x=left, y=top,
                           color=(color_red, color_green, color_blue, color_alpha),
-                          anchor_x='center', anchor_y='center', batch=self.batch_2d))
+                          anchor_x='center', anchor_y='center', batch=self.batch))
 
     def play_sound(self, ide):
         pyglet.resource.media(ide.get_file_path()).play()

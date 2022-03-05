@@ -1,6 +1,32 @@
 # This file is:
 # src/python/saoirse_base.py
 
+
+"""
+MIT License
+
+Copyright (c) 2022 Duncan Brasher (Dunkmania101)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
+
 import os, logging
 from enum import Enum
 
@@ -140,11 +166,18 @@ class IdentifierObjGetterPair():
     def get_id(self):
         return self.ide
 
+    def get_obj_nocall(self):
+        return self.obj
+
     def get_obj(self, *args, **kwargs):
-        obj = self.obj(*args, **kwargs)
-        if hasattr(obj, "set_id"):
-            obj.set_id(self.get_id())
-        return obj
+        obj = self.get_obj_nocall()
+        if callable(obj):
+            ret_obj = obj(*args, **kwargs)
+        else:
+            ret_obj = obj
+        if ret_obj is not None and hasattr(ret_obj, "set_id"):
+            ret_obj.set_id(self.get_id())
+        return ret_obj
 
     def __str__(self):
         return f"{str(self.get_id())} : {str(self.obj)}"
@@ -273,22 +306,22 @@ class ThreeDimensionalPosition():
 
     def offset(self, direction, distance):
         if direction == ThreeDimensionalPosition.Direction.UP:
-            return ThreeDimensionalPosition(self.get_x(), self.get_y() + distance, self.get_z())
-
-        if direction == ThreeDimensionalPosition.Direction.DOWN:
-            return ThreeDimensionalPosition(self.get_x(), self.get_y() - distance, self.get_z())
-
-        if direction == ThreeDimensionalPosition.Direction.FRONT:
-            return ThreeDimensionalPosition(self.get_x() + distance, self.get_y(), self.get_z())
-
-        if direction == ThreeDimensionalPosition.Direction.BACK:
-            return ThreeDimensionalPosition(self.get_x() - distance, self.get_y(), self.get_z())
-
-        if direction == ThreeDimensionalPosition.Direction.RIGHT:
             return ThreeDimensionalPosition(self.get_x(), self.get_y(), self.get_z() + distance)
 
-        if direction == ThreeDimensionalPosition.Direction.LEFT:
+        if direction == ThreeDimensionalPosition.Direction.DOWN:
             return ThreeDimensionalPosition(self.get_x(), self.get_y(), self.get_z() - distance)
+
+        if direction == ThreeDimensionalPosition.Direction.FRONT:
+            return ThreeDimensionalPosition(self.get_x(), self.get_y() + distance, self.get_z())
+
+        if direction == ThreeDimensionalPosition.Direction.BACK:
+            return ThreeDimensionalPosition(self.get_x(), self.get_y() - distance, self.get_z())
+
+        if direction == ThreeDimensionalPosition.Direction.RIGHT:
+            return ThreeDimensionalPosition(self.get_x() + distance, self.get_y(), self.get_z())
+
+        if direction == ThreeDimensionalPosition.Direction.LEFT:
+            return ThreeDimensionalPosition(self.get_x() - distance, self.get_y(), self.get_z())
 
         return self
 
@@ -320,15 +353,15 @@ class ThreeDimensionalPosition():
             return ThreeDimensionalPosition.Direction.RIGHT
         elif dist_farthest == abs(dist_y):
             if dist_y < 0:
-                return ThreeDimensionalPosition.Direction.DOWN
-            return ThreeDimensionalPosition.Direction.UP
-        else:
-            if dist_z < 0:
                 return ThreeDimensionalPosition.Direction.BACK
             return ThreeDimensionalPosition.Direction.FRONT
+        else:
+            if dist_z < 0:
+                return ThreeDimensionalPosition.Direction.DOWN
+            return ThreeDimensionalPosition.Direction.UP
 
     def is_inside_shape(self, shape):
-        # I'm quite proud of this approach as I came up with it on my own.
+        # I'm quite proud of this approach as I came up with it myself.
         # It works by checking whether self is between each pair of corners in shape while only considering the axis of the line connecting them.
         if isinstance(shape, ThreeDimensionalShape):
             corners = []
@@ -569,20 +602,13 @@ class Entity(SpaceGameObject):
 
 
 class ThreeDimensionalSpace(SpaceGameObject):
-    def __init__(self, ide, server, spawn_pos=ThreeDimensionalPosition.get_origin()):
-        super().__init__(ide, server, self)
+    def __init__(self, ide, server):
+        super().__init__(ide, server, ThreeDimensionalPosition.get_origin(), self)
 
         self.space_game_objects = {}
-        self.set_spawn_pos(spawn_pos)
 
     def get_server(self):
         return self.server
-
-    def set_spawn_pos(self, pos=ThreeDimensionalPosition.get_origin()):
-        self.spawn_pos = pos
-
-    def get_spawn_pos(self):
-        return self.spawn_pos
 
     def generate_terrain_at_pos(self, pos=ThreeDimensionalPosition.get_origin()):
         pass
@@ -599,7 +625,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
     def get_gravity_speed(self, m1, m2, distance):
         return ((self.get_g_constant() * m1 * m2) / (distance**2)) / self.get_server().get_ticks_per_second()
 
-    def add_space_game_object_at_pos(self, pos, space_game_object):
+    def add_object_at_pos(self, pos, space_game_object):
         space_game_object.set_pos(pos)
         space_game_object.set_current_space(self)
         pos_str = pos.to_str()
@@ -608,17 +634,17 @@ class ThreeDimensionalSpace(SpaceGameObject):
         self.space_game_objects[pos_str] = existing_objects
         return self
 
-    def remove_space_game_object_at_pos(self, pos, check_space_game_object=None):
-        for space_game_object in self.get_space_game_objects_at_pos(pos, check_space_game_object):
+    def remove_object_at_pos(self, pos, check_space_game_object=None):
+        for space_game_object in self.get_objects_at_pos(pos, check_space_game_object):
             self.space_game_objects.pop(space_game_object)
         return self
 
-    def replace_space_game_object_at_pos(self, pos, old_space_game_object, new_space_game_object):
-        self.remove_space_game_object_at_pos(pos, old_space_game_object)
-        self.add_space_game_object_at_pos(pos, new_space_game_object)
+    def replace_object_at_pos(self, pos, old_space_game_object, new_space_game_object):
+        self.remove_object_at_pos(pos, old_space_game_object)
+        self.add_object_at_pos(pos, new_space_game_object)
         return self
 
-    def get_space_game_objects_at_pos(self, pos, check_space_game_object=None):
+    def get_objects_at_pos(self, pos, check_space_game_object=None):
         if check_space_game_object is None:
             return self.get_space_game_objects_dict().get(pos.to_str(), [])
         space_game_objects = []
@@ -638,7 +664,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
                 return nearest
         return None
 
-    def tick_space_game_object_gravity(self, space_game_object):
+    def tick_object_gravity(self, space_game_object):
         if len(self.get_objects()) > 1 and space_game_object.has_gravity():
             nearest = self.get_nearest_obj_set_to_pos(space_game_object.get_pos(), [space_game_object])
             space_game_object.set_pos(space_game_object.get_pos().offset(space_game_object.get_pos().get_nearest_direction_to_other_pos(nearest.get_pos()), self.get_gravity_speed(space_game_object.get_mass(), nearest.get_mass(), nearest.get_pos().get_distance_from_other(space_game_object.get_pos()))))
@@ -648,7 +674,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
         for space_game_object_set in self.get_objects():
             for space_game_object in space_game_object_set:
                 space_game_object.tick()
-                self.tick_space_game_object_gravity(space_game_object)
+                self.tick_object_gravity(space_game_object)
         return self
 
     class SaveDataKeys(Enum):
@@ -671,7 +697,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
                                 pos = ThreeDimensionalPosition.of_dict(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS.value])
                                 space_game_object.set_pos(pos)
                                 space_game_object.set_data(space_game_object_data.get(ThreeDimensionalSpace.SaveDataKeys.DATA.value))
-                                self.add_space_game_object_at_pos(pos, space_game_object)
+                                self.add_object_at_pos(pos, space_game_object)
 
     def get_data(self):
         data = super().get_data()
@@ -696,6 +722,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
 class BaseServer(MainGameObject):
     spaces_key = "spaces"
     spawn_space_key = "spawn_space"
+    spawn_pos_key = "spawn_pos"
 
     def __init__(self, ide, registry):
         super().__init__(ide, self)
@@ -717,31 +744,50 @@ class BaseServer(MainGameObject):
         self.spaces[space.get_id().get_path_str()] = space
         return self
 
-    def get_current_space(self, ide):
+    def get_space(self, ide):
         return self.spaces.get(ide.get_path_str(), None)
 
     def set_spawn_space(self, space_id):
-        self.spawn_point = {self.spawn_space_key: space_id.get_path()}
+        self.spawn_space_id = space_id
+
+    def set_spawn_pos(self, pos):
+        self.spawn_pos = pos
+
+    def get_spawn_space_id(self):
+        return self.spawn_space_id
+
+    def get_spawn_space(self):
+        return self.get_spaces_dict().get(self.get_spawn_space_id)
+
+    def get_spawn_pos(self):
+        return self.spawn_pos
 
     def tick(self):
-        for space in self.get_spaces_dict().values():
+        for space in self.get_spaces():
             space.tick()
         return self
 
-    def get_data(self):
-        spaces_data = {}
-        for space in self.get_spaces_dict().values():
-            spaces_data[space.get_id().get_path_str()] = space.get_data()
-        return {self.spaces_key: spaces_data}
-
     def set_data(self, data):
+        super().set_data(data)
         if self.spaces_key in data.keys():
             spaces_data = data.get(self.spaces_key)
             for space_key in spaces_data.keys():
                 space_ide = Identifier(space_key)
                 if space_key not in self.get_spaces_dict().keys():
-                    space = self.get_registry().get_entry(space_ide)
-                    if isinstance(space, IdentifierObjGetterPair):
-                        self.add_space(space.get_obj())
-                self.get_current_space(space_ide).set_data(spaces_data.get(space_key))
+                    self.add_space(self.get_registry().get_entry(space_ide).get_obj())
+                self.get_space(space_ide).set_data(spaces_data.get(space_key))
+        if self.spawn_space_key in data.keys():
+            self.set_spawn_space(Identifier(data.get(self.spawn_space_key)))
+        if self.spawn_pos_key in data.keys():
+            self.set_spawn_pos(ThreeDimensionalPosition.of_dict(data.get(self.spawn_pos_key)))
         return self
+
+    def get_data(self):
+        data = super().get_data()
+        spaces_data = {}
+        for space in self.get_spaces_dict().values():
+            spaces_data[space.get_id().get_path_str()] = space.get_data()
+        data[self.spaces_key] = spaces_data
+        data[self.spawn_space_key] = self.get_spawn_space_id().get_path()
+        data[self.spawn_pos_key] = self.get_spawn_pos().to_dict()
+        return data
