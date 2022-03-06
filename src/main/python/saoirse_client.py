@@ -27,9 +27,10 @@ SOFTWARE.
 """
 
 
-import sys, pyglet
+import sys, os, pyglet
+from json import dumps as jdumps, loads as jloads
 from pyglet.gl import glEnable, glClearColor, GL_DEPTH_TEST, GL_CULL_FACE
-from saoirse_base import logger, expand_full_path, ThreeDimensionalPosition, Identifier, MainGameObject, InteractableObject, SpaceGameObject, ThreeDimensionalShape
+from saoirse_base import logger, expand_full_path, Identifier, MainGameObject, InteractableObject, SpaceGameObject, ThreeDimensionalShape
 from saoirse_server import saoirse_id, SaoirseServer, SaoirseIdentifierEnum
 
 
@@ -269,10 +270,10 @@ class SaoirseClientWidgets:
             world = "world"
 
         class SaoirseClientWorldScreen(ScreenWidget):
-            def __init__(self, server, current_space=None, parent=None):
+            def __init__(self, server, current_space=None, parent=None, player_id=""):
                 super().__init__(SaoirseClientWidgets.ClientScreens.ScreenIdentifiers.world.get_identifier(), server, current_space=current_space, parent=parent, title="")
 
-                self.set_player_id("Dunkmania101")
+                self.set_player_id(player_id)
                 self.connect_with_server()
 
             def set_player_id(self, ide):
@@ -285,8 +286,10 @@ class SaoirseClientWidgets:
                 return self.get_server().get_player_by_id(self.get_player_id())
 
             def connect_with_server(self):
-                self.get_server().add_player(self.get_player_id())
-                self.get_player_entity().set_pos(self.get_player_entity().get_pos().offset(ThreeDimensionalPosition.Direction.FRONT, 3))
+                pass
+                # Currently has a NoneTypeException
+                #self.get_server().add_player(self.get_player_id())
+                #self.get_player_entity().set_pos(self.get_player_entity().get_pos().offset(ThreeDimensionalPosition.Direction.FRONT, 3))
 
             def tick_content(self):
                 if self.get_current_space() is not None:
@@ -320,10 +323,19 @@ class SaoirseClientWidgets:
 
 
 class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
-    def __init__(self, headless=False, data_dir=""):
+    key_username = "username"
+
+    def __init__(self, headless=False, data_dir="", username=None):
         super().__init__(SaoirseClientWidgets.ClientScreens.ScreenIdentifiers.main_window.get_identifier(), server=None, parent=None, title="Saoirse")
 
         self.set_data_dir(data_dir)
+        self.config_file = os.path.join(self.get_data_dir(), "client_config.json")
+        self.read_config_from_file()
+
+        if username is not None:
+            self.set_username(username)
+        if not hasattr(self, "username"):
+            self.set_username("Player1")
 
         pyglet.options["headless"] = headless
 
@@ -348,6 +360,7 @@ class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
 
         @self.window.event
         def on_draw():
+            # For some reason the window is blank when it tries to render models
             self.window.clear()
             self.batch.draw()
             for obj in self.render_que:
@@ -366,6 +379,49 @@ class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
 
     def get_data_dir(self):
         return self.data_dir
+
+    def set_config_file(self, config_file):
+        self.config_file = config_file
+
+    def get_config_file(self):
+        return self.config_file
+
+    def save_config_to_file(self):
+        data = None
+        try:
+            data = jdumps(self.get_data(), indent=2) # Get data first to avoid writing a broken config to the config file
+        except Exception as e:
+            logger.warning(f"Failed to write config to file, it will not be saved (the old config will still remain intact): {str(e)}")
+        if data is not None:
+            with open(self.get_config_file(), "w") as f:
+                f.write(data)
+
+    def read_config_from_file(self):
+        if os.path.isfile(self.get_config_file()):
+            data = None
+            try:
+                with open(self.get_config_file(), "r") as f:
+                    data = jloads(f.read()) # Get data first to avoid reading a broken config from the config file
+            except Exception as e:
+                logger.warning(f"Failed to load config from file, the default will be used: {str(e)}")
+            if data is not None:
+                self.set_data(data)
+
+    def set_data(self, data):
+        super().set_data(data)
+        if self.key_username in data.keys():
+            self.set_username(data.get(self.key_username))
+
+    def get_data(self):
+        data = super().get_data()
+        data[self.key_username] = self.get_username()
+        return data
+
+    def set_username(self, username):
+        self.username = username
+
+    def get_username(self):
+        return self.username
 
     def set_server(self, server):
         self.server = server
@@ -416,22 +472,30 @@ class SaoirseClientMainWindowScreenPyglet(ScreenWidget):
             self.get_server().tick()
         super().tick()
 
+    def on_removed(self):
+        super().on_removed()
+        self.save_config_to_file()
+
 
 def main(args):
     headless = False
     data_dir = ""
+    username = None
 
     arg_key_headless = "--headless"
     arg_key_data_dir = "--data_dir="
+    arg_key_username = "--username="
 
     if len(args) > 1:
         for arg in args[1:]:
             if arg.startswith(arg_key_data_dir):
                 data_dir = expand_full_path(arg.replace(arg_key_data_dir, ""))
+            if arg.startswith(arg_key_username):
+                username = arg.replace(arg_key_username, "")
             if arg.startswith(arg_key_headless):
                 headless = True
 
-    SaoirseClientMainWindowScreenPyglet(headless=headless, data_dir=data_dir)
+    SaoirseClientMainWindowScreenPyglet(headless=headless, data_dir=data_dir, username=username)
 
 
 if __name__ == "__main__":

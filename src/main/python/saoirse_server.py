@@ -27,7 +27,7 @@ SOFTWARE.
 """
 
 
-import sys, os, time, uuid
+import sys, os, time #, uuid
 #from msgpack import pack as mpack, unpack as munpack
 from json import dumps as jdumps, loads as jloads
 from saoirse_base import logger, expand_full_path, Identifier, IdentifierEnum, BaseRegistry, Item, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer
@@ -96,6 +96,7 @@ class Spaces:
             # TEST - adding objects
             if pos == ThreeDimensionalPosition.get_origin():
                 self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 15, 4000)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_identifier()).get_obj())
+                self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 19, 4000)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_thread.get_identifier()).get_obj())
 
     class GhostlySpace(ThreeDimensionalSpace):
         def __init__(self, server):
@@ -341,17 +342,23 @@ class SaoirseServer(BaseServer):
     #        self.set_data(munpack(f))
 
     def save_to_file(self):
-        data = self.get_data() # Get data first to avoid writing a broken state to the save file
-        with open(self.get_save_file(), "w") as f:
-            f.write(jdumps(data, indent=2))
+        data = None
+        try:
+            data = jdumps(self.get_data(), indent=2) # Get data first to avoid writing a broken state to the save file
+        except Exception as e:
+            logger.warning(f"Failed to write save to file, it will not be saved (the old save will still remain intact): {str(e)}")
+        if data is not None:
+            with open(self.get_save_file(), "w") as f:
+                f.write(data)
 
     def read_from_file(self):
         data = None
         try:
             with open(self.get_save_file(), "r") as f:
-                data = jloads(f.read())
+                data = jloads(f.read()) # Get data first to avoid reading a broken state from the save file
         except Exception as e:
-            logger.warning(f"Failed to load save from file: {str(e)}")
+            logger.warning(f"Failed to load save from file. A new level will NOT be created to avoid overwriting the existing file, please change the save path if a new level is desired. The broken save might be fixable by hand as it is stored in plain JSON syntax: {str(e)}")
+            raise e # The server should still crash to avoid overwriting the intended save
         if data is not None:
             self.set_data(data)
 
