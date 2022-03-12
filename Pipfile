@@ -9,7 +9,7 @@ pyglet = "*"
 [dev-packages]
 pip = "*"
 pipenv = "*"
-nuitka = "*"
+pyinstaller = "*"
 
 [requires]
 python_version = "3.10.2"
