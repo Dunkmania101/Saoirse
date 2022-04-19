@@ -30,7 +30,7 @@ SOFTWARE.
 import sys, os, time #, uuid
 #from msgpack import pack as mpack, unpack as munpack
 from json import dumps as jdumps, loads as jloads
-from saoirse_base import logger, expand_full_path, Identifier, IdentifierEnum, BaseRegistry, Item, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer
+from saoirse_base import logger, expand_full_path, Identifier, IdentifierEnum, BaseRegistry, Item, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer, ThreeDimensionalShape
 
 
 saoirse_id = "saoirse"
@@ -69,6 +69,14 @@ class Items:
                     return data
 
             class HatchetItem(BaseToolItem):
+                class HatchetItemShape(ThreeDimensionalShape):
+                    def __init__(self, boxes=[]):
+                        boxes.extend([
+                            ThreeDimensionalShape.ThreeDimensionalBox(faces=[ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[ThreeDimensionalPosition(0, 0, 0), ThreeDimensionalPosition(0.05, 0, 0), ThreeDimensionalPosition(0, 0.05, 0), ThreeDimensionalPosition(0.05, 0.05, 0)], texture=Identifier("resources/saoirse/media/pic1.png")), ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[ThreeDimensionalPosition(0, 0, 0.25), ThreeDimensionalPosition(0.05, 0, 0.25), ThreeDimensionalPosition(0, 0.05, 0.25), ThreeDimensionalPosition(0.05, 0.05, 0.25)], texture=Identifier("resources/saoirse/media/pic1.png"))]),
+                            # ThreeDimensionalShape.ThreeDimensionalBox([ThreeDimensionalPosition(0, 0, 0.25), ThreeDimensionalPosition(0.05, 0, 0.25), ThreeDimensionalPosition(0, 0.125, 0.25), ThreeDimensionalPosition(0.25, 0.125, 0.25), ThreeDimensionalPosition(0, 0, 0.3), ThreeDimensionalPosition(0.05, 0, 0.3), ThreeDimensionalPosition(0, 0.125, 0.3), ThreeDimensionalPosition(0.25, 0.125, 0.3)]),
+                        ])
+                        super().__init__(boxes)
+
                 def __init__(self, ide, server, pos=..., space=None, integrity=100):
                     super().__init__(ide, server, pos=pos, space=space, integrity=integrity)
 
@@ -97,6 +105,7 @@ class Spaces:
             if pos == ThreeDimensionalPosition.get_origin():
                 self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 15, 4000)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_identifier()).get_obj())
                 self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 19, 4000)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_thread.get_identifier()).get_obj())
+                self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 3, 4000)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.hatchet.get_identifier()).get_obj())
 
     class GhostlySpace(ThreeDimensionalSpace):
         def __init__(self, server):
@@ -124,8 +133,12 @@ class SaoirseRegistry(BaseRegistry):
         return self.server
 
     def register_items(self):
-        for ide in SaoirseRegistry.Identifiers.ITEMS:
-            self.register_item(ide.get_identifier(), None)
+        for idee in SaoirseRegistry.Identifiers.ITEMS:
+            ide = idee.get_identifier()
+            item_obj = None
+            if ide == SaoirseRegistry.Identifiers.ITEMS.hatchet:
+                item_obj = lambda : Items.Equipment.Tools.HatchetItem(server=self.get_server(), ide=ide)
+            self.register_item(ide, item_obj)
 
     def register_item(self, ide, item_obj=None):
         if item_obj is None:
@@ -147,7 +160,7 @@ class SaoirseRegistry(BaseRegistry):
 
     def register_entities(self):
         self.register_entity(SaoirseRegistry.Identifiers.ENTITIES.player.get_identifier(),
-                            lambda : Spaces.NormalSpace(server=self.get_server()))
+                            lambda : Entities.PlayerEntity(server=self.get_server()))
 
     def register_entity(self, ide, entity_obj=None):
         if entity_obj is None:
@@ -205,6 +218,8 @@ class SaoirseRegistry(BaseRegistry):
             spruce_stick = "spruce_stick"
             ironwood_stick = "ironwood_stick"
             hickory_stick = "hickory_stick"
+            ##########
+            hatchet = "hatchet"
 
         class TILES(SaoirseIdentifierEnum):
             def get_base_ide(self):
@@ -296,6 +311,7 @@ class SaoirseServer(BaseServer):
         if player_id_str not in self.get_player_ids():
             player = self.get_registry().get_entry(SaoirseRegistry.Identifiers.ENTITIES.player.get_identifier()).get_obj()
             player.set_server(self)
+            player.set_player_id(player_id_str)
             if player_id_str in self.get_saved_players().keys():
                 player.set_data(self.get_saved_players().get(player_id_str))
             self.get_space(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier()).add_object_at_pos(player.get_pos(), player)
@@ -398,7 +414,7 @@ def main(args):
     if len(args) > 1:
         for arg in args[1:]:
             if arg.startswith(arg_key_help):
-                print(help_msg)
+                logger.info(help_msg)
                 return
             if arg.startswith(arg_key_save_file):
                 save_file = expand_full_path(arg.replace(arg_key_save_file, ""))

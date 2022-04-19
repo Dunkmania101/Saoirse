@@ -30,6 +30,7 @@ SOFTWARE.
 import os, logging
 from enum import Enum
 
+
 logger = logging.getLogger("saoirse")
 
 
@@ -51,8 +52,7 @@ def expand_full_path(path_str):
 
 
 #class VarHolder():
-#    def __init__(self):
-#        pass
+#    pass
 
 
 class Identifier():
@@ -104,6 +104,9 @@ class Identifier():
 
     def is_equal(self, other_in):
         return isinstance(other_in, Identifier) and other_in.get_path() == self.get_path()
+
+    def __eq__(self, other_in):
+        return self.is_equal(other_in)
 
     def append(self, other_path_in, update_self=True):
         new_path = self.path.copy()
@@ -363,6 +366,7 @@ class ThreeDimensionalPosition():
     def is_inside_shape(self, shape):
         # I'm quite proud of this approach as I came up with it myself.
         # It works by checking whether self is between each pair of corners in shape while only considering the axis of the line connecting them.
+        # (In theory) It works in any number of spatial dimensions and with concave as well as convex shapes.
         if isinstance(shape, ThreeDimensionalShape):
             corners = []
             for box in shape.get_boxes():
@@ -429,6 +433,27 @@ class TickableObject():
         return 64
 
 
+class SaveableObject():
+    persist_data_key = "persist_data"
+    def __init__(self):
+        self.persist_data = {}
+
+    def set_persist_data(self, data):
+        self.persist_data = data
+        return self
+
+    def get_persist_data(self):
+        return self.persist_data
+
+    def set_data(self, data):
+        if self.persist_data_key in data.keys():
+            self.set_persist_data(data.get(self.persist_data_key))
+        return self
+
+    def get_data(self):
+        return {self.persist_data_key: self.get_persist_data()}
+
+
 class InteractableObject():
     def get_action_by_id(self, ide, actor):
         return None
@@ -440,10 +465,9 @@ class InteractableObject():
         return self.get_action_by_id(ActionIds.SECONDARY, actor)
 
 
-class MainGameObject(TickableObject, InteractableObject):
-    persist_data_key = "persist_data"
+class MainGameObject(SaveableObject, TickableObject, InteractableObject):
     def __init__(self, ide, server):
-        self.persist_data = {}
+        super().__init__()
         self.ide = ide
         self.set_server(server)
         self.on_created()
@@ -468,21 +492,6 @@ class MainGameObject(TickableObject, InteractableObject):
     def get_id(self):
         return self.ide
 
-    def set_persist_data(self, data):
-        self.persist_data = data
-        return self
-
-    def get_persist_data(self):
-        return self.persist_data
-
-    def set_data(self, data):
-        if self.persist_data_key in data.keys():
-            self.set_persist_data(data.get(self.persist_data_key))
-        return self
-
-    def get_data(self):
-        return {self.persist_data_key: self.get_persist_data()}
-
 
 class ThreeDimensionalShape():
     def __init__(self, boxes=[]):
@@ -502,6 +511,14 @@ class ThreeDimensionalShape():
     def get_boxes(self):
         return self.boxes
 
+    def get_faces(self):
+        faces = []
+        for box in self.get_boxes():
+            for face in box.get_faces():
+                if face not in faces:
+                    faces.append(face)
+        return faces
+
     def add_box(self, box):
         self.boxes.append(box)
 
@@ -517,21 +534,22 @@ class ThreeDimensionalShape():
             return self
 
     class ThreeDimensionalBox():
-        def __init__(self, corners=[ThreeDimensionalPosition.get_origin()] * 4, textures=[]):
-            self.set_corners(corners)
-            self.set_textures(textures)
-
-        def set_corners(self, corners=[ThreeDimensionalPosition.get_origin()] * 4):
-            self.corners = corners
+        def __init__(self, faces=[]):
+            self.set_faces(faces)
 
         def get_corners(self):
-            return self.corners
+            corners = []
+            for face in self.get_faces():
+                for corner in face.get_corners():
+                    if corner not in corners:
+                        corners.append(corner)
+            return corners
 
-        def set_textures(self, textures):
-            self.textures = textures
+        def set_faces(self, faces):
+            self.faces = faces
 
-        def get_textures(self):
-            return self.textures
+        def get_faces(self):
+            return self.faces
 
         def get_wireframe_positions(self, resolution=1):
             positions = self.get_corners().copy()
@@ -544,7 +562,24 @@ class ThreeDimensionalShape():
 
         def get_contained_positions(self, resolution=1):
             # This works because it traces all points in self's wireframe, filling it
-            return ThreeDimensionalShape.ThreeDimensionalBox(corners=self.get_wireframe_positions(resolution=resolution)).get_wireframe_positions()
+            return ThreeDimensionalShape.ThreeDimensionalBox(faces=[ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[corner]) for corner in self.get_wireframe_positions(resolution=resolution)]).get_wireframe_positions()
+
+        class ThreeDimensionalFace():
+            def __init__(self, corners=[], texture=Identifier()):
+                self.set_corners(corners)
+                self.set_texture(texture)
+
+            def set_corners(self, corners=[]):
+                self.corners = corners
+
+            def get_corners(self):
+                return self.corners
+
+            def set_texture(self, texture):
+                self.texture = texture
+
+            def get_texture(self):
+                return self.texture
 
 
 class SpaceGameObject(MainGameObject):
@@ -556,6 +591,9 @@ class SpaceGameObject(MainGameObject):
 
     def get_model(self):
         return ThreeDimensionalShape()
+
+    def get_collision_shape(self):
+        return self.get_model()
 
     def set_pos(self, pos):
         self.pos = pos
