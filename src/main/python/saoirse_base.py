@@ -27,15 +27,16 @@ SOFTWARE.
 """
 
 
-import os, logging
+from logging import getLogger
+from os import path as ospath
 from enum import Enum
 
 
-logger = logging.getLogger("saoirse")
+logger = getLogger("saoirse")
 
 
 def expand_full_path(path_str):
-    return os.path.expandvars(os.path.expanduser(path_str))
+    return ospath.expandvars(ospath.expanduser(path_str))
 
 
 #class Logger():
@@ -134,7 +135,7 @@ class Identifier():
         return Identifier(self.get_path(), self.get_delimiter())
 
     def get_file_path(self):
-        return os.path.join(*self.get_path())
+        return ospath.join(*self.get_path())
 
     def get_id_from_str_list_or_id(ide):
         if isinstance(ide, str) or isinstance(ide, list):
@@ -245,6 +246,15 @@ class ThreeDimensionalPosition():
     def get_origin():
         return ThreeDimensionalPosition(x = 0, y = 0, z = 0)
 
+    def set_x(self, x=0):
+       self.x = x
+
+    def set_y(self, y=0):
+       self.y = y
+
+    def set_z(self, z=0):
+       self.z = z
+
     def get_x(self):
         return self.x
 
@@ -307,26 +317,40 @@ class ThreeDimensionalPosition():
         RIGHT = 5
         DOWN = 6
 
-    def offset(self, direction, distance):
+    def offset(self, x=0, y=0, z=0, update_self=False):
+        new_x = self.get_x() + x
+        new_y = self.get_y() + y
+        new_z = self.get_z() + z
+        if update_self:
+            self.set_x(new_x)
+            self.set_y(new_y)
+            self.set_z(new_z)
+            return self
+        else:
+            return ThreeDimensionalPosition(new_x, new_y, new_z)
+
+    def offset_direction(self, direction, distance):
         if direction == ThreeDimensionalPosition.Direction.UP:
             return ThreeDimensionalPosition(self.get_x(), self.get_y(), self.get_z() + distance)
 
-        if direction == ThreeDimensionalPosition.Direction.DOWN:
+        elif direction == ThreeDimensionalPosition.Direction.DOWN:
             return ThreeDimensionalPosition(self.get_x(), self.get_y(), self.get_z() - distance)
 
-        if direction == ThreeDimensionalPosition.Direction.FRONT:
+        elif direction == ThreeDimensionalPosition.Direction.FRONT:
             return ThreeDimensionalPosition(self.get_x(), self.get_y() + distance, self.get_z())
 
-        if direction == ThreeDimensionalPosition.Direction.BACK:
+        elif direction == ThreeDimensionalPosition.Direction.BACK:
             return ThreeDimensionalPosition(self.get_x(), self.get_y() - distance, self.get_z())
 
-        if direction == ThreeDimensionalPosition.Direction.RIGHT:
+        elif direction == ThreeDimensionalPosition.Direction.RIGHT:
             return ThreeDimensionalPosition(self.get_x() + distance, self.get_y(), self.get_z())
 
-        if direction == ThreeDimensionalPosition.Direction.LEFT:
+        elif direction == ThreeDimensionalPosition.Direction.LEFT:
             return ThreeDimensionalPosition(self.get_x() - distance, self.get_y(), self.get_z())
 
-        return self
+        else:
+            logger.warning(f"Could not get offset of ThreeDimensionalPosition by direction {str(direction)} because it is not a Direction!")
+            return self
 
     def get_relative(self, other):
         return ThreeDimensionalPosition(self.get_x() + other.get_x(), self.get_y() + other.get_y(), self.get_z() + other.get_z())
@@ -363,36 +387,33 @@ class ThreeDimensionalPosition():
                 return ThreeDimensionalPosition.Direction.DOWN
             return ThreeDimensionalPosition.Direction.UP
 
-    def is_inside_shape(self, shape):
+    def is_in_shaded_1d(point, corner, corner1, allow_edges=True):
+        lo, hi = min(corner, corner1), max(corner, corner1)
+        if allow_edges:
+            if not (lo <= point <= hi):
+                return False
+        else:
+            if not (lo < point < hi):
+                return False
+        return True
+
+    def is_in_shaded(self, corner, corner1, allow_edges=True):
+        return ThreeDimensionalPosition.is_in_shaded_1d(self.get_x(), corner.get_x(), corner1.get_x(), allow_edges) or ThreeDimensionalPosition.is_in_shaded_1d(self.get_y(), corner.get_y(), corner1.get_y(), allow_edges) or ThreeDimensionalPosition.is_in_shaded_1d(self.get_z(), corner.get_z(), corner1.get_z(), allow_edges)
+
+    def is_inside_shape(self, shape, allow_edges=True):
         # I'm quite proud of this approach as I came up with it myself.
         # It works by checking whether self is between each pair of corners in shape while only considering the axis of the line connecting them.
-        # (In theory) It works in any number of spatial dimensions and with concave as well as convex shapes.
-        if isinstance(shape, ThreeDimensionalShape):
-            corners = []
-            for box in shape.get_boxes():
-                corners.extend(box.get_corners())
-        elif isinstance(shape, ThreeDimensionalShape.ThreeDimensionalBox):
+        # (In theory) It works in any number of spatial dimensions. I'm pretty sure it can handle concave shapes, although I'm not 100% sure on that one so more testing is needed there.
+        if isinstance(shape, (ThreeDimensionalShape, ThreeDimensionalShape.ThreeDimensionalBox, ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace)):
             corners = shape.get_corners()
         else:
             return False
         if len(corners) > 1:
             for i, corner in enumerate(corners):
                 for corner1 in corners[i:]:
-                    # This check tests whether self is between the two corners while ignoring whether it falls directly on the line between. It's a modified version of the formula found in the following answer: https://stackoverflow.com/questions/11907947/how-to-check-if-a-point-lies-on-a-line-between-2-other-points#11908158
-                    dxl = corner1.get_x() - corner.get_x()
-                    dyl = corner1.get_y() - corner.get_y()
-
-                    if (abs(dxl) >= abs(dyl)):
-                        if dxl > 0:
-                            if not corner.get_x() <= self.get_x() and self.get_x() <= corner1.get_x():
-                                return False
-                        elif not corner1.get_x() <= self.get_x() and self.get_x() <= corner.get_x():
+                    if corner != corner1:
+                        if not self.is_in_shaded(corner, corner1, allow_edges):
                             return False
-                    if dyl > 0:
-                        if not corner.get_y() <= self.get_y() and self.get_y() <= corner1.get_y():
-                            return False
-                    elif not corner1.get_y() <= self.get_y() and self.get_y() <= corner.get_y():
-                        return False
             return True
         return self in corners
 
@@ -405,13 +426,16 @@ class ThreeDimensionalPosition():
         return {ThreeDimensionalPosition.Axies.X.value: self.get_x(), ThreeDimensionalPosition.Axies.Y.value: self.get_y(), ThreeDimensionalPosition.Axies.Z.value: self.get_z()}
 
     def to_str(self):
-        return str(self.to_dict())
+        return f"x{self.get_x()}y{self.get_y()}z{self.get_z()}"
 
     def of_dict(pos_dict):
         return ThreeDimensionalPosition(pos_dict.get(ThreeDimensionalPosition.Axies.X.value, 0), pos_dict.get(ThreeDimensionalPosition.Axies.Y.value, 0), pos_dict.get(ThreeDimensionalPosition.Axies.Z.value, 0))
 
     def of_str(pos_str):
-        return ThreeDimensionalPosition.of_dict(dict(pos_str))
+        x = int(pos_str[pos_str.find("x")+1:pos_str.find("y")])
+        y = int(pos_str[pos_str.find("y")+1:pos_str.find("z")])
+        z = int(pos_str[pos_str.find("z")+1:])
+        return ThreeDimensionalPosition(x, y, z)
 
     def __str__(self):
         return self.to_str()
@@ -511,27 +535,58 @@ class ThreeDimensionalShape():
     def get_boxes(self):
         return self.boxes
 
+    def remove_empty(self):
+        for box in self.get_boxes():
+            if len(box.get_faces()) == 0:
+                self.boxes.remove(box)
+            else:
+                box.remove_empty()
+
     def get_faces(self):
         faces = []
         for box in self.get_boxes():
-            for face in box.get_faces():
-                if face not in faces:
-                    faces.append(face)
+            faces.extend(box.get_faces())
         return faces
+
+    def get_corners(self):
+        corners = []
+        for box in self.get_boxes():
+            corners.extend(box.get_corners())
+        return corners
 
     def add_box(self, box):
         self.boxes.append(box)
 
-    def merge(self, other, update_self=True):
-        other_boxes = []
+    def merge(self, other, offset_x=0, offset_y=0, offset_z=0, update_self=True):
         if isinstance(other, ThreeDimensionalShape):
-            other_boxes = other.get_boxes().copy()
-        if not update_self:
+            if len(other.get_boxes()) > 0:
+                if offset_x != 0 or offset_y != 0 or offset_z != 0:
+                    other = other.move(offset_x, offset_y, offset_z, False)
+                other_boxes = other.get_boxes().copy()
+            else:
+                other_boxes = []
             other_boxes.extend(self.get_boxes())
-            return ThreeDimensionalShape(other_boxes)
+            if not update_self:
+                return ThreeDimensionalShape(other_boxes)
+            else:
+                self.set_boxes(other_boxes)
+                return self
         else:
-            self.boxes.extend(other_boxes)
+            logger.warning(f"Could not merge shape {str(self)} with other object {str(other)} because other is not a ThreeDimensionalShape! ")
             return self
+
+    def move(self, offset_x=0, offset_y=0, offset_z=0, update_self=True):
+        other_boxes = self.get_boxes().copy()
+        for box in other_boxes:
+            box.move(offset_x, offset_y, offset_z)
+        if update_self:
+            self.boxes = other_boxes
+            return self
+        else:
+            return ThreeDimensionalShape(other_boxes)
+
+    def copy(self):
+        return ThreeDimensionalShape(self.boxes.copy())
 
     class ThreeDimensionalBox():
         def __init__(self, faces=[]):
@@ -540,9 +595,7 @@ class ThreeDimensionalShape():
         def get_corners(self):
             corners = []
             for face in self.get_faces():
-                for corner in face.get_corners():
-                    if corner not in corners:
-                        corners.append(corner)
+                corners.extend(face.get_corners())
             return corners
 
         def set_faces(self, faces):
@@ -550,6 +603,21 @@ class ThreeDimensionalShape():
 
         def get_faces(self):
             return self.faces
+
+        def remove_empty(self):
+            for face in self.get_faces():
+                if len(face.get_corners()) == 0:
+                    self.faces.remove(face)
+
+        def move(self, offset_x=0, offset_y=0, offset_z=0, update_self=True):
+            other_faces = self.get_faces().copy()
+            for face in other_faces:
+                face.move(offset_x, offset_y, offset_z)
+            if update_self:
+                self.set_faces(other_faces)
+                return self
+            else:
+                return ThreeDimensionalShape.ThreeDimensionalBox(other_faces)
 
         def get_wireframe_positions(self, resolution=1):
             positions = self.get_corners().copy()
@@ -565,7 +633,7 @@ class ThreeDimensionalShape():
             return ThreeDimensionalShape.ThreeDimensionalBox(faces=[ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[corner]) for corner in self.get_wireframe_positions(resolution=resolution)]).get_wireframe_positions()
 
         class ThreeDimensionalFace():
-            def __init__(self, corners=[], texture=Identifier()):
+            def __init__(self, corners=[], texture=None):
                 self.set_corners(corners)
                 self.set_texture(texture)
 
@@ -581,6 +649,16 @@ class ThreeDimensionalShape():
             def get_texture(self):
                 return self.texture
 
+            def move(self, offset_x=0, offset_y=0, offset_z=0, update_self=True):
+                other_corners = self.get_corners().copy()
+                for corner in other_corners:
+                    corner.offset(offset_x, offset_y, offset_z, True)
+                if update_self:
+                    self.set_corners(other_corners)
+                    return self
+                else:
+                    return ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(other_corners)
+
 
 class SpaceGameObject(MainGameObject):
     def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), space=None):
@@ -590,7 +668,7 @@ class SpaceGameObject(MainGameObject):
         self.set_current_space(space)
 
     def get_model(self):
-        return ThreeDimensionalShape()
+        return None
 
     def get_collision_shape(self):
         return self.get_model()
@@ -643,7 +721,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
     def __init__(self, ide, server):
         super().__init__(ide, server, ThreeDimensionalPosition.get_origin(), self)
 
-        self.space_game_objects = {}
+        self.space_game_obj_sets = {}
 
     def get_server(self):
         return self.server
@@ -651,11 +729,11 @@ class ThreeDimensionalSpace(SpaceGameObject):
     def generate_terrain_at_pos(self, pos=ThreeDimensionalPosition.get_origin()):
         pass
 
-    def get_space_game_objects_dict(self):
-        return self.space_game_objects
+    def get_obj_sets_dict(self):
+        return self.space_game_obj_sets
 
-    def get_objects(self):
-        return list(self.get_space_game_objects_dict().values())
+    def get_obj_sets(self):
+        return list(self.get_obj_sets_dict().values())
 
     def get_g_constant(self):
         return 6.67 * (10**-11)
@@ -667,14 +745,14 @@ class ThreeDimensionalSpace(SpaceGameObject):
         space_game_object.set_pos(pos)
         space_game_object.set_current_space(self)
         pos_str = pos.to_str()
-        existing_objects = self.space_game_objects.get(pos_str, [])
+        existing_objects = self.space_game_obj_sets.get(pos_str, [])
         existing_objects.append(space_game_object)
-        self.space_game_objects[pos_str] = existing_objects
+        self.space_game_obj_sets[pos_str] = existing_objects
         return self
 
     def remove_object_at_pos(self, pos, check_space_game_object=None):
-        for space_game_object in self.get_objects_at_pos(pos, check_space_game_object):
-            self.space_game_objects.pop(space_game_object)
+        for space_game_object in self.get_object_set_at_pos(pos, check_space_game_object):
+            self.space_game_obj_sets.pop(space_game_object)
         return self
 
     def replace_object_at_pos(self, pos, old_space_game_object, new_space_game_object):
@@ -682,37 +760,88 @@ class ThreeDimensionalSpace(SpaceGameObject):
         self.add_object_at_pos(pos, new_space_game_object)
         return self
 
-    def get_objects_at_pos(self, pos, check_space_game_object=None):
-        if check_space_game_object is None:
-            return self.get_space_game_objects_dict().get(pos.to_str(), [])
-        space_game_objects = []
-        for space_game_object in self.get_objects():
-            if space_game_object.get_pos() == pos and (check_space_game_object == space_game_object or check_space_game_object is None):
-                space_game_objects.append(space_game_object)
-        return space_game_objects
+    def get_object_set_at_pos(self, pos, check_objects=[]):
+        obj_set = self.get_obj_sets_dict().get(pos.to_str(), [])
+        if len(check_objects) == 0:
+            return obj_set
+        objects = []
+        for obj in obj_set:
+            if obj in check_objects:
+                objects.append(obj)
+        return objects
+
+    def get_object_sets_in_shape(self, shape, check_objects=[], allow_edges=True):
+        obj_sets = []
+        for pos_key in self.get_obj_sets_dict().keys():
+            obj_set_pos = ThreeDimensionalPosition.of_str(pos_key)
+            if obj_set_pos.is_inside_shape(shape, allow_edges):
+                obj_set = self.get_object_set_at_pos(obj_set_pos)
+                if len(obj_set) > 0:
+                    if len(check_objects) == 0:
+                        obj_sets.append(obj_set)
+                    else:
+                        obj_set1 = []
+                        for obj in obj_set:
+                            if obj in check_objects:
+                                obj_set1.append(obj)
+                        if len(obj_set1) > 0:
+                            obj_sets.append(obj_set1)
+        return obj_sets
+
+    def get_objects_in_shape(self, shape, check_objects=[], allow_edges=True):
+        objects = []
+        for obj_set in self.get_object_sets_in_shape(shape, check_objects, allow_edges):
+            objects.extend(obj_set)
+        return objects
 
     def get_nearest_obj_set_to_pos(self, pos, exclusions=[]):
-        if len(self.get_objects()) > 0:
-            nearest = self.get_objects()[0]
-            if len(self.get_objects()) > 1:
-                for obj in self.get_objects()[1:]:
-                    if obj not in exclusions and obj.get_pos().get_distance_from_other(pos) < nearest.get_pos().get_distance_from_other(pos):
-                        nearest = obj
-            if nearest not in exclusions:
-                return nearest
+        if len(self.get_obj_sets_dict().keys()) > 0:
+            nearest_pos = ThreeDimensionalPosition.of_str(list(self.get_obj_sets_dict().keys())[0])
+            if len(self.get_obj_sets()) > 1:
+                nearest_dist = pos.get_distance_from_other(nearest_pos)
+                if nearest_dist > 0:
+                    for key in self.get_obj_sets_dict().keys():
+                        check_pos = ThreeDimensionalPosition.of_str(key)
+                        check_dist = pos.get_distance_from_other(check_pos)
+                        if check_dist < nearest_dist:
+                            nearest_pos = check_pos
+                            nearest_dist = check_dist
+            return self.get_object_set_at_pos(nearest_pos, exclusions)
         return None
 
-    def tick_object_gravity(self, space_game_object):
-        if len(self.get_objects()) > 1 and space_game_object.has_gravity():
-            nearest = self.get_nearest_obj_set_to_pos(space_game_object.get_pos(), [space_game_object])
-            space_game_object.set_pos(space_game_object.get_pos().offset(space_game_object.get_pos().get_nearest_direction_to_other_pos(nearest.get_pos()), self.get_gravity_speed(space_game_object.get_mass(), nearest.get_mass(), nearest.get_pos().get_distance_from_other(space_game_object.get_pos()))))
+    def get_heaviest_objects_in_set(self, obj_set):
+        if len(obj_set) > 0:
+            heaviest = []
+            mass = 0
+            for obj in obj_set:
+                obj_mass = obj.get_mass()
+                if obj_mass > mass:
+                    mass = obj_mass
+                    heaviest = [obj]
+                elif obj_mass == mass:
+                    heaviest.append(obj)
+        return None
+
+    def get_mass_of_set(self, obj_set):
+        if len(obj_set) > 0:
+            return sum([obj.get_mass() for obj in obj_set])
+        return 0
+
+    def tick_object_gravity(self, obj):
+        if len(self.get_obj_sets()) > 1 and obj.has_gravity():
+            nearest_set = self.get_nearest_obj_set_to_pos(obj.get_pos(), [obj])
+            if nearest_set is not None:
+                if len(nearest_set) > 0:
+                    mass = self.get_mass_of_set(nearest_set)
+                    if mass > 0:
+                        obj.set_pos(obj.get_pos().offset(obj.get_pos().get_nearest_direction_to_other_pos(nearest.get_pos()), self.get_gravity_speed(obj.get_mass(), nearest.get_mass(), nearest.get_pos().get_distance_from_other(obj.get_pos()))))
         return self
 
     def tick(self):
-        for space_game_object_set in self.get_objects():
-            for space_game_object in space_game_object_set:
-                space_game_object.tick()
-                self.tick_object_gravity(space_game_object)
+        for obj_set in self.get_obj_sets():
+            for obj in obj_set:
+                obj.tick()
+                self.tick_object_gravity(obj)
         return self
 
     class SaveDataKeys(Enum):
@@ -724,35 +853,35 @@ class ThreeDimensionalSpace(SpaceGameObject):
     def set_data(self, data):
         if ThreeDimensionalSpace.SaveDataKeys.OBJECTS.value in data.keys():
             objects_data = data.get(ThreeDimensionalSpace.SaveDataKeys.OBJECTS.value)
-            for space_game_object_set_data in objects_data.values():
-                for space_game_object_data in space_game_object_set_data:
-                    if ThreeDimensionalSpace.SaveDataKeys.IDE.value in space_game_object_data.keys() and ThreeDimensionalSpace.SaveDataKeys.POS.value in space_game_object_data.keys():
-                        ide = Identifier(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value])
-                        space_game_object_pair = self.get_server().get_registry().get_entry(ide)
-                        if space_game_object_pair is not None:
-                            space_game_object = space_game_object_pair.get_obj()
-                            if space_game_object is not None:
-                                pos = ThreeDimensionalPosition.of_dict(space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS.value])
-                                space_game_object.set_pos(pos)
-                                space_game_object.set_data(space_game_object_data.get(ThreeDimensionalSpace.SaveDataKeys.DATA.value))
-                                self.add_object_at_pos(pos, space_game_object)
+            for obj_set_data in objects_data.values():
+                for obj_data in obj_set_data:
+                    if ThreeDimensionalSpace.SaveDataKeys.IDE.value in obj_data.keys() and ThreeDimensionalSpace.SaveDataKeys.POS.value in obj_data.keys():
+                        ide = Identifier(obj_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value])
+                        obj_pair = self.get_server().get_registry().get_entry(ide)
+                        if obj_pair is not None:
+                            obj = obj_pair.get_obj()
+                            if obj is not None:
+                                pos = ThreeDimensionalPosition.of_dict(obj_data[ThreeDimensionalSpace.SaveDataKeys.POS.value])
+                                obj.set_pos(pos)
+                                obj.set_data(obj_data.get(ThreeDimensionalSpace.SaveDataKeys.DATA.value))
+                                self.add_object_at_pos(pos, obj)
 
     def get_data(self):
         data = super().get_data()
         objects_data = {}
-        for i, space_game_object_set in self.get_space_game_objects_dict().items():
-            space_game_object_set_data = []
-            for space_game_object in space_game_object_set:
-                if space_game_object is not None:
-                    ide_path_str = space_game_object.get_id().get_path_str()
-                    pos_dict = space_game_object.get_pos().to_dict()
-                    saved_data = space_game_object.get_data()
-                    space_game_object_data = {}
-                    space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value] = ide_path_str
-                    space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.POS.value] = pos_dict
-                    space_game_object_data[ThreeDimensionalSpace.SaveDataKeys.DATA.value] = saved_data
-                    space_game_object_set_data.append(space_game_object_data)
-            objects_data[str(i)] = space_game_object_set_data
+        for i, obj_set in self.get_obj_sets_dict().items():
+            obj_set_data = []
+            for obj in obj_set:
+                if obj is not None:
+                    ide_path_str = obj.get_id().get_path_str()
+                    pos_dict = obj.get_pos().to_dict()
+                    saved_data = obj.get_data()
+                    obj_data = {}
+                    obj_data[ThreeDimensionalSpace.SaveDataKeys.IDE.value] = ide_path_str
+                    obj_data[ThreeDimensionalSpace.SaveDataKeys.POS.value] = pos_dict
+                    obj_data[ThreeDimensionalSpace.SaveDataKeys.DATA.value] = saved_data
+                    obj_set_data.append(obj_data)
+            objects_data[str(i)] = obj_set_data
         data[ThreeDimensionalSpace.SaveDataKeys.OBJECTS.value] = objects_data
         return data
 

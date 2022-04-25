@@ -1,5 +1,6 @@
 .vscode
 bin
+*.bin
 include
 lib
 lib64

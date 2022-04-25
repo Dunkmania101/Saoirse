@@ -5,11 +5,12 @@ name = "pypi"
 
 [packages]
 pyglet = "*"
+pillow = "*"
 
 [dev-packages]
 pip = "*"
 pipenv = "*"
-pyinstaller = "*"
+nuitka = "*"
 
 [requires]
-python_version = "3.10.2"
+python_version = "3.10.*"

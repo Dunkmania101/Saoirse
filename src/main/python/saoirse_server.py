@@ -27,9 +27,11 @@ SOFTWARE.
 """
 
 
-import sys, os, time #, uuid
+import sys, time #, uuid
+from os import path, mkdir, mknod
 #from msgpack import pack as mpack, unpack as munpack
-from json import dumps as jdumps, loads as jloads
+# from json import dumps as jdumps, loads as jloads
+from pickle import dump as pkldump, load as pklload
 from saoirse_base import logger, expand_full_path, Identifier, IdentifierEnum, BaseRegistry, Item, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer, ThreeDimensionalShape
 
 
@@ -69,16 +71,19 @@ class Items:
                     return data
 
             class HatchetItem(BaseToolItem):
-                class HatchetItemShape(ThreeDimensionalShape):
-                    def __init__(self, boxes=[]):
-                        boxes.extend([
-                            ThreeDimensionalShape.ThreeDimensionalBox(faces=[ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[ThreeDimensionalPosition(0, 0, 0), ThreeDimensionalPosition(0.05, 0, 0), ThreeDimensionalPosition(0, 0.05, 0), ThreeDimensionalPosition(0.05, 0.05, 0)], texture=Identifier("resources/saoirse/media/pic1.png")), ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[ThreeDimensionalPosition(0, 0, 0.25), ThreeDimensionalPosition(0.05, 0, 0.25), ThreeDimensionalPosition(0, 0.05, 0.25), ThreeDimensionalPosition(0.05, 0.05, 0.25)], texture=Identifier("resources/saoirse/media/pic1.png"))]),
-                            # ThreeDimensionalShape.ThreeDimensionalBox([ThreeDimensionalPosition(0, 0, 0.25), ThreeDimensionalPosition(0.05, 0, 0.25), ThreeDimensionalPosition(0, 0.125, 0.25), ThreeDimensionalPosition(0.25, 0.125, 0.25), ThreeDimensionalPosition(0, 0, 0.3), ThreeDimensionalPosition(0.05, 0, 0.3), ThreeDimensionalPosition(0, 0.125, 0.3), ThreeDimensionalPosition(0.25, 0.125, 0.3)]),
-                        ])
-                        super().__init__(boxes)
-
                 def __init__(self, ide, server, pos=..., space=None, integrity=100):
                     super().__init__(ide, server, pos=pos, space=space, integrity=integrity)
+
+                def get_model(self):
+                    return Items.Equipment.Tools.HatchetItem.HatchetItemShape()
+
+                class HatchetItemShape(ThreeDimensionalShape):
+                    def __init__(self, boxes=[]):
+                        boxes1 = boxes.copy()
+                        boxes1.extend([
+                            ThreeDimensionalShape.ThreeDimensionalBox(faces=[ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[ThreeDimensionalPosition(0, 0, 0), ThreeDimensionalPosition(0.05, 0, 0), ThreeDimensionalPosition(0, 0.05, 0), ThreeDimensionalPosition(0.05, 0.05, 0)], texture=Identifier("resources/saoirse/media/pic1.png")), ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[ThreeDimensionalPosition(0, 0, 0.25), ThreeDimensionalPosition(0.05, 0, 0.25), ThreeDimensionalPosition(0, 0.05, 0.25), ThreeDimensionalPosition(0.5, 0.5, 0.5), ThreeDimensionalPosition(3, 5, 1)], texture=Identifier("resources/saoirse/media/pic1.png"))]),
+                        ])
+                        super().__init__(boxes=boxes1)
 
 
 class Entities:
@@ -103,9 +108,9 @@ class Spaces:
         def generate_terrain_at_pos(self, pos=ThreeDimensionalPosition.get_origin()):
             # TEST - adding objects
             if pos == ThreeDimensionalPosition.get_origin():
-                self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 15, 4000)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_identifier()).get_obj())
-                self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 19, 4000)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_thread.get_identifier()).get_obj())
-                self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 3, 4000)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.hatchet.get_identifier()).get_obj())
+                self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 5, 4)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_identifier()).get_obj())
+                self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(4, 9, 4)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_thread.get_identifier()).get_obj())
+                self.add_object_at_pos(pos.get_relative(ThreeDimensionalPosition(5, 3, 4)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.hatchet.get_identifier()).get_obj())
 
     class GhostlySpace(ThreeDimensionalSpace):
         def __init__(self, server):
@@ -136,7 +141,7 @@ class SaoirseRegistry(BaseRegistry):
         for idee in SaoirseRegistry.Identifiers.ITEMS:
             ide = idee.get_identifier()
             item_obj = None
-            if ide == SaoirseRegistry.Identifiers.ITEMS.hatchet:
+            if ide == SaoirseRegistry.Identifiers.ITEMS.hatchet.get_identifier():
                 item_obj = lambda : Items.Equipment.Tools.HatchetItem(server=self.get_server(), ide=ide)
             self.register_item(ide, item_obj)
 
@@ -277,17 +282,18 @@ class SaoirseRegistry(BaseRegistry):
 class SaoirseServer(BaseServer):
     saved_players_key = "saved_players"
 
-    def __init__(self, save_file="world.json"):
+    def __init__(self, save_file="world.pkl"):
         super().__init__(saoirse_id, SaoirseRegistry(self))
 
         self.saved_players = {}
+        self.players = {}
 
         self.set_spawn_space(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier())
         self.set_spawn_pos(ThreeDimensionalPosition(0, 0, 4000))
 
         self.set_save_file(save_file)
 
-        if os.path.isfile(self.get_save_file()):
+        if path.isfile(self.get_save_file()):
             self.read_from_file()
         else:
             self.generate_spaces()
@@ -295,30 +301,44 @@ class SaoirseServer(BaseServer):
     def get_saved_players(self):
         return self.saved_players
 
-    def get_players(self):
+    def refresh_players(self):
         players = {}
         for space in self.get_spaces():
-            for obj in space.get_objects():
-                if isinstance(obj, Entities.PlayerEntity):
-                    players[str(obj.get_player_id())] = obj
-        return players
+            for obj_set in space.get_obj_sets():
+                for obj in obj_set:
+                    if isinstance(obj, Entities.PlayerEntity):
+                        players[str(obj.get_player_id())] = obj
+        if self.players != players:
+            self.players.clear()
+            self.players = players
+
+    def get_players_dict(self):
+        return self.players
+
+    def get_players(self):
+        return list(self.get_players_dict())
 
     def get_player_ids(self):
-        return [str(player.get_player_id()) for player in list(self.get_players())]
+        return self.get_players_dict().keys()
 
     def add_player(self, player_id):
         player_id_str = str(player_id)
-        if player_id_str not in self.get_player_ids():
-            player = self.get_registry().get_entry(SaoirseRegistry.Identifiers.ENTITIES.player.get_identifier()).get_obj()
-            player.set_server(self)
-            player.set_player_id(player_id_str)
-            if player_id_str in self.get_saved_players().keys():
-                player.set_data(self.get_saved_players().get(player_id_str))
-            self.get_space(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier()).add_object_at_pos(player.get_pos(), player)
+        if player_id_str == "":
+            logger.warning("Failed to add player with blank id!")
+        else:
+            self.refresh_players()
+            if player_id_str not in self.get_player_ids():
+                player = self.get_registry().get_entry(SaoirseRegistry.Identifiers.ENTITIES.player.get_identifier()).get_obj()
+                player.set_server(self)
+                player.set_player_id(player_id_str)
+                if player_id_str in self.get_saved_players().keys():
+                    player.set_data(self.get_saved_players().get(player_id_str))
+                self.get_space(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier()).add_object_at_pos(player.get_pos(), player)
+                self.players[player_id_str] = player
 
     def get_player_by_id(self, player_id):
         player_id_str = str(player_id)
-        players = self.get_players()
+        players = self.get_players_dict()
         if player_id_str in players.keys():
             return players.get(player_id_str)
         return None
@@ -338,16 +358,20 @@ class SaoirseServer(BaseServer):
     def get_data(self):
         data = super().get_data()
         saved_players_data = self.get_saved_players()
-        for player_id, player in self.get_players():
-            saved_players_data[str(player_id)] = player.get_data()
+        players_dict = self.get_players_dict()
+        for player_id in players_dict.keys():
+            saved_players_data[player_id] = players_dict.get(player_id).get_data()
         data[self.saved_players_key] = saved_players_data
         return data
 
-    def set_save_file(self, save_file="world.json"):
+    def set_save_file(self, save_file="world.pkl"):
         self.save_file = save_file
 
     def get_save_file(self):
         return self.save_file
+
+    def get_save_dir(self):
+        return path.dirname(self.get_save_file())
 
     #def save_to_file(self):
     #    with open(self.get_save_file(), "w") as f:
@@ -360,18 +384,25 @@ class SaoirseServer(BaseServer):
     def save_to_file(self):
         data = None
         try:
-            data = jdumps(self.get_data(), indent=2) # Get data first to avoid writing a broken state to the save file
+            data = self.get_data() # Get data first to avoid writing a broken state to the save file
         except Exception as e:
             logger.warning(f"Failed to write save to file, it will not be saved (the old save will still remain intact): {str(e)}")
         if data is not None:
-            with open(self.get_save_file(), "w") as f:
-                f.write(data)
+            try:
+                if not path.isdir(self.get_save_dir()):
+                    mkdir(self.get_save_dir())
+                if not path.isfile(self.get_save_file()):
+                    mknod(self.get_save_file())
+                with open(self.get_save_file(), "wb") as f:
+                    pkldump(data, f)
+            except Exception as e:
+                logger.warning(f"Failed to write save to file, the old file may have been written with broken data (see the following exception for more info, \"no such file or directory\" means no damage was done): {str(e)}")
 
     def read_from_file(self):
         data = None
         try:
-            with open(self.get_save_file(), "r") as f:
-                data = jloads(f.read()) # Get data first to avoid reading a broken state from the save file
+            with open(self.get_save_file(), "rb") as f:
+                data = pklload(f) # Get data first to avoid reading a broken state from the save file
         except Exception as e:
             logger.warning(f"Failed to load save from file. A new level will NOT be created to avoid overwriting the existing file, please change the save path if a new level is desired. The broken save might be fixable by hand as it is stored in plain JSON syntax: {str(e)}")
             raise e # The server should still crash to avoid overwriting the intended save
@@ -409,7 +440,7 @@ def main(args):
     """
 
     arg_key_help = ("--help", "-h")
-    arg_key_save_file = "--save_file="
+    arg_key_save_file = "--save-file="
 
     if len(args) > 1:
         for arg in args[1:]:
