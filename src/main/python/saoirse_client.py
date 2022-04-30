@@ -29,13 +29,18 @@ SOFTWARE.
 
 import pyglet
 from sys import argv
-from os import path, mkdir
+from os import path, makedirs
+from random import choice as randchoice
+from threading import Thread
 from PIL import ImageTk, Image, ImageDraw, ImageFont
-from tkinter import Tk, Label, BOTH as TkBOTH
+from tkinter import Tk, Label as TkLabel, BOTH as TkBOTH
 from time import time as gettime
 from json import dumps as jdumps, loads as jloads
-from saoirse_base import ThreeDimensionalPosition, logger, expand_full_path, Identifier, MainGameObject, InteractableObject, SpaceGameObject, ThreeDimensionalShape
-from saoirse_server import saoirse_id, SaoirseServer, SaoirseIdentifierEnum, Items
+from saoirse_base import saoirse_base_version, ThreeDimensionalPosition, logger, expand_full_path, Identifier, MainGameObject, InteractableObject, SpaceGameObject, ThreeDimensionalShape
+from saoirse_server import saoirse_server_version, SaoirseServer, SaoirseIdentifierEnum
+
+
+saoirse_client_version = "0.0.1"
 
 
 default_font = "Exo 2 Regular"
@@ -98,13 +103,13 @@ class BaseWidgets:
         def get_bottom(self):
             return self.get_top() + self.get_height()
 
-        def draw_image(self, img, left=0, top=0, right=0, bottom=0):
-            self.get_parent().draw_image(img, self.get_top() + top, self.get_left() + left, self.get_right() + right, self.get_bottom() + bottom)
+        def draw_image(self, img, left=0, top=0, right=0, bottom=0, shade_red=None, shade_green=None, shade_blue=None, shade_alpha=None):
+            self.get_parent().draw_image(img, self.get_top() + top, self.get_left() + left, self.get_right() + right, self.get_bottom() + bottom, shade_red=shade_red, shade_green=shade_green, shade_blue=shade_blue, shade_alpha=shade_alpha)
 
-        def draw_model(self, model, left=0, top=0, depth=0, dots_per_meter=1):
-            self.get_parent().draw_model(model, self.get_left() + left, self.get_top() + top, depth, dots_per_meter)
+        def draw_model(self, model, x=0, y=0, z=0, dots_per_meter=1):
+            self.get_parent().draw_model(model, self.get_left() + x, y, self.get_top() + z, dots_per_meter)
 
-        def draw_text(self, text, font_size=11, left=0, top=0, right=0, bottom=0, font_name=default_font, color_red=255, color_green=255, color_blue=190, color_alpha=255):
+        def draw_text(self, text, font_size=11, left=0, top=0, right=0, bottom=0, font_name=default_font, color_red=150, color_green=150, color_blue=100, color_alpha=255):
             self.get_parent().draw_text(text=text, font_size=font_size, left=self.get_left() + left, top=self.get_top() + top, right=self.get_right() + right, bottom=self.get_bottom() + bottom, font_name=font_name, color_red=color_red, color_green=color_green, color_blue=color_blue, color_alpha=color_alpha)
 
         def play_sound(self, ide):
@@ -141,9 +146,21 @@ class BaseWidgets:
         def tick_content(self):
             pass
 
+    class ImageWidget(BaseWidget):
+        def __init__(self, ide, parent=None, width=20, height=20, left=0, top=0,  img="", shade_red=None, shade_green=None, shade_blue=None, shade_alpha=None):
+            super().__init__(ide, parent=parent, left=left, top=top, width=width, height=height)
+
+            self.img = img
+            self.shade_red=shade_red
+            self.shade_green=shade_green
+            self.shade_blue=shade_blue
+            self.shade_alpha=shade_alpha
+
+        def tick_content(self):
+            self.draw_image(self.get_left(), self.get_top(), self.get_right(), self.get_bottom())
 
     class TextWidget(BaseWidget):
-        def __init__(self, ide, parent=None, width=20, height=20, left=0, top=0, text="", font_name=default_font, color_red=255, color_green=255, color_blue=190, color_alpha=255):
+        def __init__(self, ide, parent=None, width=20, height=20, left=0, top=0, text="", font_name=default_font, color_red=150, color_green=150, color_blue=100, color_alpha=255):
             super().__init__(ide, parent=parent, left=left, top=top, width=width, height=height)
 
             self.set_text(text)
@@ -257,15 +274,30 @@ class SaoirseClientWidgets:
             world = "world"
 
         class SaoirseClientWorldScreen(ScreenWidget):
-            def __init__(self, parent=None, player_id="Player1"):
+            def __init__(self, parent=None, player_id="Player1", server=None):
                 super().__init__(SaoirseClientWidgets.ClientScreens.ScreenIdentifiers.world.get_identifier(), parent=parent, title="")
 
-                self.set_server(SaoirseServer(save_file=path.join(self.get_parent().get_parent().get_data_dir(), "world", "world.pkl")))
+                self.server_is_local = server is None
+                if self.server_is_local:
+                    self.create_local_server()
+                else:
+                    self.set_server(server)
                 self.set_player_id(player_id)
                 self.connect_with_server()
 
             def set_server(self, server):
                 self.server = server
+
+            def create_local_server(self, save_dir=None, save_name=None):
+                if save_name is None:
+                    save_name = "world1"
+                if save_dir is None:
+                    save_dir = path.join(self.get_parent().get_parent().get_data_dir(), "saves", save_name)
+                self.server = SaoirseServer(save_file=path.join(save_dir, f"{save_name}.pkl"))
+                def tick_server():
+                    while not self.server.removed:
+                         self.server.tick()
+                Thread(target=tick_server).start()
 
             def get_server(self):
                 return self.server
@@ -297,7 +329,7 @@ class SaoirseClientWidgets:
                 return self.get_parent().get_parent().get_fov_z()
 
             def get_dots_per_meter(self):
-                return max(int((self.get_width()/self.get_fov_x())+(self.get_height()/self.get_fov_z())/2), 1)
+                return max(int(((self.get_width()/self.get_fov_x())+(self.get_height()/self.get_fov_z()))/2), 1)
 
             def get_current_space(self):
                 player = self.get_player_entity()
@@ -315,6 +347,12 @@ class SaoirseClientWidgets:
                     fx, fy, fz = self.get_fov_x()/2, self.get_fov_y(), self.get_fov_z()/2
                     view_pos = self.get_view_pos()
                     vx, vy, vz = view_pos.get_x(), view_pos.get_y(), view_pos.get_z()
+                    if vy == 0:
+                        vy1 = 1
+                    elif vy == 0:
+                        vy1 = 2
+                    else:
+                        vy1 = vy
                     frame_model = ThreeDimensionalShape()
                     for obj in current_space.get_objects_in_shape(shape=ThreeDimensionalShape.ThreeDimensionalBox(faces=[ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[
                             ThreeDimensionalPosition(vx + fx, vy, vz + fz),
@@ -330,7 +368,7 @@ class SaoirseClientWidgets:
                             obj_model = obj.get_model()
                             if obj_model is not None and isinstance(obj_model, ThreeDimensionalShape):
                                 obj_pos = obj.get_pos()
-                                frame_model.merge(obj_model, vx+fx-obj_pos.get_x(), vy+fy-obj_pos.get_y(), vz+fz-obj_pos.get_z())
+                                frame_model.merge(obj_model, fx+obj_pos.get_x()-vx, obj_pos.get_y()-vy1, fz+obj_pos.get_z()-vz)
                     frame_model.remove_empty()
                     self.draw_model(frame_model, dots_per_meter=self.get_dots_per_meter())
 
@@ -349,12 +387,11 @@ class SaoirseClientWidgets:
 
             def draw_content(self):
                 self.add_child(SaoirseClientWidgets.ClientScreens.SaoirseClientWorldScreen(self, self.get_parent().get_username()))
-                self.add_child(SaoirseClientWidgets.ClientWidgets.Buttons.SaoirseClientSingleplayerButton(self))
+                # self.add_child(SaoirseClientWidgets.ClientWidgets.Buttons.SaoirseClientSingleplayerButton(self))
 
             def tick_content(self):
                 self.set_width(self.get_parent().get_width())
                 self.set_height(self.get_parent().get_height())
-                # self.draw_model(Items.Equipment.Tools.HatchetItem.HatchetItemShape(), 10, 10)
 
 
 class SaoirseClientMainWindowScreen(ScreenWidget):
@@ -368,8 +405,10 @@ class SaoirseClientMainWindowScreen(ScreenWidget):
         key_y = "y"
         key_z = "z"
 
-    def __init__(self, data_dir="", username=None, width=960, height=540):
-        super().__init__(SaoirseClientWidgets.ClientScreens.ScreenIdentifiers.main_window.get_identifier(), parent=None, title="Saoirse", left=0, top=0, width=width, height=height)
+    def __init__(self, data_dir="", username=None, width=1920, height=1080, title="Saoirse", render_method="headless"):
+        self.render_method = render_method
+
+        super().__init__(SaoirseClientWidgets.ClientScreens.ScreenIdentifiers.main_window.get_identifier(), parent=None, title=title, left=0, top=0, width=width, height=height)
 
         self.set_data_dir(data_dir)
         self.config_file = path.join(self.get_data_dir(), "client_config.json")
@@ -384,13 +423,16 @@ class SaoirseClientMainWindowScreen(ScreenWidget):
         if not hasattr(self, "current_framerate"):
             self.set_current_framerate(0)
         if not hasattr(self, "fov_x"):
-            self.set_fov_x(100)
+            self.set_fov_x(3)
         if not hasattr(self, "fov_y"):
             self.set_fov_y(500)
         if not hasattr(self, "fov_z"):
-            self.set_fov_z(50)
+            self.set_fov_z(1)
 
         self.draw()
+
+    def get_render_method(self):
+        return self.render_method
 
     def set_fov_x(self, fov):
         self.fov_x = fov
@@ -441,16 +483,16 @@ class SaoirseClientMainWindowScreen(ScreenWidget):
         try:
             data = jdumps(self.get_data(), indent=2) # Get data first to avoid writing a broken config to the config file
         except Exception as e:
-            logger.warning(f"Failed to write config to file, it will not be saved (the old config will still remain intact): {str(e)}")
+            logger.warning(f"Failed to write config to file, it will not be saved (the old config will still remain intact): {e}")
             data = None
         if data is not None:
             try:
                 if not path.isdir(self.get_config_dir()):
-                    mkdir(self.get_config_dir())
+                    makedirs(self.get_config_dir())
                 with open(self.get_config_file(), "w") as f:
                     f.write(data)
             except Exception as e:
-                logger.warning(f"Failed to write config to file, the old file may have been modified with broken data (see the followin error for more info): {str(e)}")
+                logger.warning(f"Failed to write config to file, the old file may have been modified with broken data (see the followin error for more info): {e}")
 
     def read_config_from_file(self):
         self.initial_config = None
@@ -459,7 +501,7 @@ class SaoirseClientMainWindowScreen(ScreenWidget):
                 with open(self.get_config_file(), "r") as f:
                     data = jloads(f.read()) # Get data first to avoid reading a broken config from the config file
             except Exception as e:
-                logger.warning(f"Failed to load config from file, the default will be used: {str(e)}")
+                logger.warning(f"Failed to load config from file, the default will be used: {e}")
                 data = None
             if data is not None:
                 self.set_data(data)
@@ -530,47 +572,40 @@ class SaoirseClientMainWindowScreen(ScreenWidget):
         super().on_removed()
 
 class SaoirseClientMainWindowScreenPyglet(SaoirseClientMainWindowScreen):
-    def __init__(self, headless=False, data_dir="", username=None, width=960, height=540):
-        super().__init__(data_dir=data_dir, username=username, width=width, height=height)
+    def __init__(self, headless=False, data_dir="", username=None, width=960, height=540, title="Saoirse"):
+        super().__init__(data_dir=data_dir, username=username, width=width, height=height, title=title, render_method="pyglet")
 
         pyglet.options["headless"] = headless
 
         self.render_que = []
 
         self.window = pyglet.window.Window(resizable=True, caption=self.get_title())
-        self.window.projection = pyglet.window.Mat4.perspective_projection(0, self.get_width(), 0, self.get_height(), z_near=0.1, z_far=255)
-        pyglet.graphics.glClearColor(10, 10, 10, 255)
-
-        self.batch = pyglet.graphics.Batch()
-        self.batch_3d = pyglet.graphics.Batch()
-        self.shader = pyglet.model.get_default_shader()
+        self.window.projection = pyglet.window.Mat4.perspective_projection(0, self.get_width(), 0, self.get_height(), z_near=0.1, z_far=self.get_fov_y())
+        pyglet.graphics.glClearColor(100/255, 100/255, 100/255, 1)
 
         pyglet.gl.glEnable(pyglet.gl.GL_DEPTH_TEST)
         pyglet.gl.glEnable(pyglet.gl.GL_CULL_FACE)
 
+        self.batch_2d = pyglet.graphics.Batch()
+        self.batch_3d = pyglet.graphics.Batch()
+        self.shader = pyglet.model.get_default_shader()
+
         @self.window.event
         def on_resize(width, height):
-            if width > 0 and height > 0:
+            if width > 0:
                 self.set_width(width)
+            if height > 0:
                 self.set_height(height)
+            self.window.projection = pyglet.window.Mat4.perspective_projection(0, self.get_width(), 0, self.get_height(), z_near=0.1, z_far=self.get_fov_y())
 
         @self.window.event
         def on_draw():
-            # For some reason the window is blank when it tries to render models
-            self.window.clear()
-            self.batch_3d.draw()
-            self.batch.draw()
-            for obj in self.render_que:
-                if hasattr(obj, "delete"):
-                    obj.delete()
-            self.render_que.clear()
+            self.tick()
 
-        pyglet.clock.schedule_interval(self.tick, 0.0001)
-
-    def draw_image(self, img, left=0, top=0, right=None, bottom=None):
+    def draw_image(self, img, left=0, top=0, right=None, bottom=None, shade_red=None, shade_green=None, shade_blue=None, shade_alpha=None):
         if isinstance(img, Identifier):
             img = pyglet.resource.image(img.get_file_path())
-        img = pyglet.sprite.Sprite(img, x=left, y=top, batch=self.batch)
+        img = pyglet.sprite.Sprite(img, x=left, y=self.get_height()-top, batch=self.batch_2d)
         scale_x = None
         if right is not None:
             width = right - left
@@ -583,19 +618,30 @@ class SaoirseClientMainWindowScreenPyglet(SaoirseClientMainWindowScreen):
                 scale_z = height/img.height
         if scale_x is not None or scale_z is not None:
             img.update(scale_x=scale_x, scale_y=scale_z)
+        r, g, b = img.color
+        if shade_red is not None:
+            r = shade_red
+        if shade_green is not None:
+            g = shade_green
+        if shade_blue is not None:
+            b = shade_blue
+        img.color = (r, g, b)
+        if shade_alpha is not None:
+            img.opacity
         self.render_que.append(img)
 
-    def draw_model(self, model, left=0, top=0, depth=1, dots_per_meter=1):
+    def draw_model(self, model, x=0, y=0, z=0, dots_per_meter=1):
         if isinstance(model, ThreeDimensionalShape):
-            if depth == 0:
-                depth = 1
+            if y == 0:
+                y = 1
+            elif y == 1:
+                y = 2
             vertex_lists = []
-            materials = {}
-            groups = {}
+            groups = []
             for face in model.get_faces():
                 vertices = []
                 for corner in face.get_corners():
-                    vertices.extend([int(dots_per_meter*corner.get_x()), int(dots_per_meter*corner.get_y()), int(dots_per_meter*corner.get_z())])
+                    vertices.extend([dots_per_meter*corner.get_x(), dots_per_meter*corner.get_z(), dots_per_meter*corner.get_y()])
                 count = int(len(vertices)/3)
                 if count > 0:
                     texture = face.get_texture()
@@ -604,30 +650,30 @@ class SaoirseClientMainWindowScreenPyglet(SaoirseClientMainWindowScreen):
                         texture = pyglet.resource.image(texture_name)
                     else:
                         texture_name = str(texture)
-                    if texture_name in groups.keys():
-                        material = materials[texture_name]
-                        group = groups[texture_name]
-                    else:
-                        material = pyglet.model.Material(texture_name, *[[1.0] * 4] * 4, 1, texture_name)
-                        group = pyglet.model.TexturedMaterialGroup(material, self.shader, texture)
-                        materials[texture_name] = material
-                        groups[texture_name] = group
-                    vertex_lists.append(self.shader.vertex_list(count=count, mode=pyglet.gl.GL_TRIANGLES, batch=self.batch_3d, group=group, vertices=("f", vertices), normals=("f", vertices), colors=("f", material.diffuse * count)))
+                    diffuse = [0.5, 0.0, 0.3, 1.0]
+                    ambient = [0.5, 0.0, 0.3, 1.0]
+                    specular = [1.0, 1.0, 1.0, 1.0]
+                    emission = [0.0, 0.0, 0.0, 1.0]
+                    shininess = 50
+                    material = pyglet.model.Material(texture_name, diffuse, ambient, specular, emission, shininess, texture_name)
+                    group = pyglet.model.TexturedMaterialGroup(material, self.shader, texture)
+                    groups.append(group)
+                    vertex_lists.append(self.shader.vertex_list(count=count, mode=pyglet.gl.GL_TRIANGLES, batch=self.batch_3d, group=group, vertices=("f", vertices)))
             if len(vertex_lists) > 0:
                 model = pyglet.model.Model(vertex_lists=vertex_lists, groups=list(groups), batch=self.batch_3d)
-                model.translation = left, top, depth
+                model.translation = dots_per_meter*x, self.get_height()-(dots_per_meter*z), dots_per_meter*y
                 self.render_que.append(model)
         else:
-            logger.warning(f"Unable to draw {str(model)} as a model as it is not a a ThreeDimensionalShape!")
+            logger.warning(f"Unable to draw {model} as a model as it is not a a ThreeDimensionalShape!")
 
-    def draw_text(self, text, font_size=11, left=0, top=0, right=None, bottom=None, font_name=default_font, color_red=255, color_green=255, color_blue=255, color_alpha=255):
+    def draw_text(self, text, font_size=11, left=0, top=0, right=None, bottom=None, font_name=default_font, color_red=150, color_green=150, color_blue=100, color_alpha=255):
         self.render_que.append(pyglet.text.Label(
                           text=text,
-                          font_size=font_size,
                           font_name=font_name,
-                          x=left, y=top,
+                          font_size=font_size,
+                          x=left, y=self.get_height()-top,
                           color=(color_red, color_green, color_blue, color_alpha),
-                          anchor_x='center', anchor_y='center', batch=self.batch))
+                          anchor_x='left', anchor_y='top', batch=self.batch_2d))
 
     def play_sound(self, ide):
         pyglet.resource.media(ide.get_file_path()).play()
@@ -639,7 +685,14 @@ class SaoirseClientMainWindowScreenPyglet(SaoirseClientMainWindowScreen):
             if current_time - self.last_time < 1/self.get_max_framerate():
                 do_frame = False
         if do_frame:
+            self.window.clear()
             super().tick()
+            self.batch_3d.draw()
+            self.batch_2d.draw()
+            for obj in self.render_que:
+                if hasattr(obj, "delete"):
+                    obj.delete()
+            self.render_que.clear()
             if hasattr(self, "last_time"):
                 self.set_current_framerate(int(1/(current_time - self.last_time)))
             self.last_time = current_time
@@ -659,7 +712,7 @@ class SaoirseClientMainWindowScreenPIL(SaoirseClientMainWindowScreen):
         self.tick()
         return self.frame_img
 
-    def draw_image(self, img, left=0, top=0, right=None, bottom=None, close_img=True):
+    def draw_image(self, img, left=0, top=0, right=None, bottom=None, shade_red=None, shade_green=None, shade_blue=None, shade_alpha=None):
         if isinstance(img, Identifier):
             img = Image.open(img.get_file_path())
         needs_resize = False
@@ -677,51 +730,85 @@ class SaoirseClientMainWindowScreenPIL(SaoirseClientMainWindowScreen):
             height = img.height
         if needs_resize:
             img = img.resize((width, height))
-        self.frame_img.paste(im=img, box=(left, top))
-        if close_img:
-            img.close()
-
-    def draw_model(self, model, left=0, top=0, depth=1, dots_per_meter=1):
-        if isinstance(model, ThreeDimensionalShape):
-            for face in model.get_faces():
-                xz=[]
-                greatest_x = 1
-                greatest_z = 1
-                if depth == 0:
-                    depth = 1
-                for corner in face.get_corners():
-                    x = corner.get_x()
-                    y = corner.get_y()*depth
-                    z = corner.get_z()
-                    if y == 0:
-                        y = 1
-                    x = int(dots_per_meter*(x/y))
-                    z = int(dots_per_meter*(z/y))
-                    xz.append((x, z))
-                    if x > greatest_x:
-                        greatest_x = x
-                    if z > greatest_z:
-                        greatest_z = z
-                if len(xz) >= 2:
-                    mask = Image.new(mode="RGBA", size=(greatest_x, greatest_z), color=(0, 0, 0, 0))
-                    ImageDraw.Draw(im=mask, mode="RGBA").polygon(xy=xz, fill=(255, 255, 255, 255))
-                    texture = face.get_texture()
-                    if isinstance(texture, Identifier):
-                        texture = Image.open(texture.get_file_path())
-                    mask.paste(im=texture.resize(mask.size), mask=mask)
-                    texture.close()
-                    self.draw_image(mask, left, top)
+        if shade_red is not None:
+            r = shade_red
         else:
-            logger.warning(f"Unable to draw {str(model)} as a model as it is not a ThreeDimensionalShape!")
+            r = 0
+        if shade_green is not None:
+            g = shade_green
+        else:
+            g = 0
+        if shade_blue is not None:
+            b = shade_blue
+        else:
+            b = 0
+        rgb_sum = r + g + b
+        if rgb_sum > 0:
+            shade_img = Image.new(mode="RGBA", size=img.size, color=(r, g, b))
+            img = Image.blend(img, shade_img, alpha=int(255/(rgb_sum/3)))
+        if shade_alpha is not None:
+            img.putalpha(shade_alpha)
+        self.frame_img.paste(im=img, box=(left, top), mask=img)
 
-    def draw_text(self, text, font_size=11, left=0, top=0, right=20, bottom=20, font_name=default_font, color_red=255, color_green=255, color_blue=190, color_alpha=255):
+    def draw_model(self, model, x=0, y=0, z=0, dots_per_meter=1):
+        if isinstance(model, ThreeDimensionalShape):
+            masks = {}
+            if y == 0:
+                 y = 1
+            elif y == 1:
+                y = 2
+            if y > 0:
+                for face in model.get_faces():
+                    xz = []
+                    greatest_x = 1
+                    greatest_z = 1
+                    least_y = 0
+                    for corner in face.get_corners():
+                        vy = corner.get_y()*y
+                        if vy == 0:
+                            vy = 1
+                        elif vy == 1:
+                            vy = 2
+                        if vy > 0:
+                            vx = int(dots_per_meter*(corner.get_x()/vy))
+                            vz = int(dots_per_meter*(corner.get_z()/vy))
+                            xz.append((vx, vz))
+                            if vx > greatest_x:
+                                greatest_x = vx
+                            if vz > greatest_z:
+                                greatest_z = vz
+                            if vy < least_y or least_y == 0:
+                                least_y = vy
+                    if len(xz) >= 2:
+                        mask = Image.new(mode="RGBA", size=(greatest_x, greatest_z), color=(0, 0, 0, 0))
+                        ImageDraw.Draw(im=mask, mode="RGBA").polygon(xy=xz, fill=(255, 255, 255, 100), outline=(0, 0, 0, 255))
+                        texture = face.get_texture()
+                        if isinstance(texture, Identifier):
+                            texture = Image.open(texture.get_file_path())
+                        mask.paste(im=texture.resize(mask.size), mask=mask)
+                        texture.close()
+                        masks_y = masks.get(least_y, [])
+                        masks_y.append(mask)
+                        masks[least_y] = masks_y
+                yvals = list(masks.keys())
+                yvals.sort()
+                for yval in yvals:
+                    for mask in masks.get(yval, []):
+                        self.draw_image(mask, dots_per_meter*x, dots_per_meter*z)
+                        mask.close()
+        else:
+            logger.warning(f"Unable to draw {model} as a model as it is not a ThreeDimensionalShape!")
+
+    def draw_text(self, text, font_size=11, left=0, top=0, right=20, bottom=20, font_name=default_font, color_red=150, color_green=150, color_blue=100, color_alpha=255):
         if font_name is None:
             font = None
         else:
             try:
                 font=ImageFont.load_path(font_name)
             except Exception as e:
-                # logger.warning(f"Using plain font: Failed to draw text using font {str(font_name)} with exception: {str(e)}")
+                if not hasattr(self, "has_warned_missing_font"):
+                    logger.warning(f"Using plain font: Failed to draw text using font {font_name} with exception: {e}")
+                    self.has_warned_missing_font = True
                 font=None
         img = Image.new(mode="RGBA", size=((int(right-left), int(bottom-top))), color=(0, 0, 0, 0))
         ImageDraw.Draw(im=img).multiline_text(xy=(0, 0), text=text, font=font, stroke_width=font_size, fill=(color_red, color_green, color_blue, color_alpha))
@@ -735,13 +822,13 @@ class SaoirseClientMainWindowScreenPIL(SaoirseClientMainWindowScreen):
 
 class SaoirseClientMainWidowScreenTk(Tk):
     def __init__(self, client, save_frame_list=False):
-        super().__init__(className="Saoirse")
+        super().__init__(className=client.get_title())
         self.save_frame_list = save_frame_list
         if self.save_frame_list:
             self.frame_list = []
         self.client = client
         self.wm_resizable(True, True)
-        self.frame_label = Label(self)
+        self.frame_label = TkLabel(self)
         self.frame_label.pack(expand=True, fill=TkBOTH)
 
     def get_frame_list(self):
@@ -767,7 +854,9 @@ class SaoirseClientMainWidowScreenTk(Tk):
             self.last_time = current_time
 
     def next_frame(self):
-        img = self.client.get_next_frame().resize((self.winfo_width(), self.winfo_height()))
+        self.client.set_width(self.winfo_width())
+        self.client.set_height(self.winfo_height())
+        img = self.client.get_next_frame()
         self.frame = ImageTk.PhotoImage(img)
         if self.save_frame_list:
             self.frame_list.append(img.copy())
@@ -778,7 +867,7 @@ def main(args=[],
          headless = False,
          return_frame_list = False,
          use_tk = False,
-         data_dir = "",
+         data_dir = "SaoirseClient.d",
          username = None,
 ):
     help_msg = """
@@ -800,14 +889,21 @@ def main(args=[],
 
     --headless                                          Create a client object that ticks and generates frames images without opening a window
     --return-frame-list                                 Makes the main() function save a list of all frames generated as the program runs and return it upon exiting
-    --tk                                                Makes the client window use Pillow and Tk instead of pyglet. Not recommended for performance
+    -t, --tk                                            Makes the client window use Pillow and Tk instead of pyglet. Not recommended for performance
     --data-dir=DATADIR                                  Sets the directory for saving client-side settings and resources to DATADIR. Uses the current directory if not specified
     --username=USERNAME                                 Sets the client object\'s username to USERNAME. Overrides the name specified in the config.json file under DATADIR. Defaults to \'Player1\' if not specified in either place
-    --help                                              Prints this message and exits
-    -h                                                  Same as --help
+    --version, -v                                       Print the version of the game client file being run, along with that of the server and the base library
+    --help, -h                                          Print this help message and exit
     """
 
-    arg_key_help = ("-h", "--help")
+    version_msg = f"""
+    Saoirse Library Version: {saoirse_base_version}
+    Saoirse Server Version: {saoirse_server_version}
+    Saoirse *Client* Version: {saoirse_client_version}
+    """
+
+    arg_key_help = ("--help", "-h")
+    arg_key_version = ("--version", "-v")
     arg_key_headless = "--headless"
     arg_key_return_frame_list = "--return-frame-list"
     arg_key_use_tk = "--tk"
@@ -817,7 +913,12 @@ def main(args=[],
     if len(args) > 1:
         for arg in args[1:]:
             if arg.startswith(arg_key_help):
-                logger.warning(help_msg)
+                logger.info(help_msg)
+                print(help_msg)
+                return
+            elif arg.startswith(arg_key_version):
+                logger.info(version_msg)
+                print(version_msg)
                 return
             elif arg.startswith(arg_key_headless):
                 headless = True
@@ -830,10 +931,25 @@ def main(args=[],
             elif arg.startswith(arg_key_username):
                 username = arg.replace(arg_key_username, "")
 
+    splash_txts = [
+        "No, this is\'t *that* kind of \"do whatever you want\" game!",
+        "Want some pi? M, Greek pi!",
+        "So then I said \"something about an onion router\"...",
+        "So then I said \"something about a programming language not suitable for game development\"...",
+        "Did you buy this game? You know you can compile it from source for free, right? Oh, you wanted to support the devloper? Well thanks!",
+    ]
+    if username is not None:
+        splash_txts.append(f"If you aren\'t {username}, stop impersonating people!")
+    window_title = f"Saoirse v{saoirse_client_version}:   {randchoice(splash_txts)}"
+
     if use_tk or headless:
-        client = SaoirseClientMainWindowScreenPIL(data_dir=data_dir, username=username)
+        if headless:
+            render_method="headless"
+        else:
+            render_method="tk"
+        client = SaoirseClientMainWindowScreenPIL(data_dir=data_dir, username=username, title=window_title, render_method=render_method)
     else:
-        client = SaoirseClientMainWindowScreenPyglet(data_dir=data_dir, headless=headless, username=username)
+        client = SaoirseClientMainWindowScreenPyglet(data_dir=data_dir, headless=headless, username=username, title=window_title)
     if not headless:
         if use_tk:
             root = SaoirseClientMainWidowScreenTk(client, return_frame_list)

@@ -29,10 +29,15 @@ SOFTWARE.
 
 from logging import getLogger
 from os import path as ospath
+from time import sleep, time as gettime
 from enum import Enum
 
 
 logger = getLogger("saoirse")
+saoirse_base_version = "0.0.1"
+
+
+saoirse_id = "saoirse"
 
 
 def expand_full_path(path_str):
@@ -57,7 +62,8 @@ def expand_full_path(path_str):
 
 
 class Identifier():
-    def __init__(self, path="", delimiter="/"):
+    def __init__(self, path="", delimiter="/", constant=False):
+        self.constant=constant
         self.set_delimiter(delimiter)
         self.set_path(path)
 
@@ -109,30 +115,34 @@ class Identifier():
     def __eq__(self, other_in):
         return self.is_equal(other_in)
 
-    def append(self, other_path_in, update_self=True):
+    def append(self, other_path_in, update_self=None):
+        if update_self is None:
+            update_self = not self.constant
         new_path = self.path.copy()
         if isinstance(other_path_in, list):
             new_path.extend(other_path_in)
         elif isinstance(other_path_in, str):
             new_path.append(other_path_in)
         else:
-            logger.warning(f"Failed to append invalid path {str(other_path_in)} to identifier {str(self)} as it is not of type list or str!")
+            logger.warning(f"Failed to append invalid path {other_path_in} to identifier {self} as it is not of type list or str!")
         if update_self:
             self.set_path(new_path)
             return self
-        return Identifier(new_path)
+        return Identifier(new_path, constant=self.constant)
 
-    def extend(self, other_in, update_self=True):
+    def extend(self, other_in, update_self=None):
         if isinstance(other_in, Identifier):
-                new_path = self.path.copy()
-                new_path.extend(other_in.get_path())
-                if update_self:
-                    self.set_path(new_path)
-                    return self
-                return Identifier(new_path)
+            if update_self is None:
+                update_self = not self.constant
+            new_path = self.path.copy()
+            new_path.extend(other_in.get_path())
+            if update_self:
+                self.set_path(new_path)
+                return self
+            return Identifier(new_path, constant=self.constant)
 
     def copy(self):
-        return Identifier(self.get_path(), self.get_delimiter())
+        return Identifier(self.get_path(), self.get_delimiter(), self.constant)
 
     def get_file_path(self):
         return ospath.join(*self.get_path())
@@ -143,6 +153,13 @@ class Identifier():
         elif isinstance(ide, Identifier):
             return ide
         return None
+
+
+saoirse_resources_path = Identifier(["resources", saoirse_id], constant=True)
+saoirse_media_path = saoirse_resources_path.append("media")
+saoirse_images_path = saoirse_media_path.append("images")
+saoirse_missing_image_path = saoirse_images_path.append("missing.png")
+saoirse_audio_path = saoirse_media_path.append("audio")
 
 
 class IdentifierEnum(Enum):
@@ -184,7 +201,7 @@ class IdentifierObjGetterPair():
         return ret_obj
 
     def __str__(self):
-        return f"{str(self.get_id())} : {str(self.obj)}"
+        return f"{self.get_id()} : {self.obj}"
 
 
 class BaseRegistry():
@@ -227,14 +244,14 @@ class BaseRegistry():
             if isinstance(ide, Identifier):
                 id_str = ide.get_path_str()
                 if id_str in self.get_entries_dict().keys():
-                    logger.warning(msg=f"Failed to register {str(id_obj_pair)} as its id of {id_str} is alread registered!")
+                    logger.warning(msg=f"Failed to register {id_obj_pair} as its id of {id_str} is alread registered!")
                 else:
                     id_obj_pair.set_id(ide)
                     self.entries[id_str] = id_obj_pair
             else:
-                logger.warning(msg=f"Failed to register {str(id_obj_pair)} as its id of {str(ide)} is not an Identifier!")
+                logger.warning(msg=f"Failed to register {id_obj_pair} as its id of {ide} is not an Identifier!")
         else:
-            logger.warning(msg=f"Failed to register {str(id_obj_pair)} as it is not an IdentifierObjectPair!")
+            logger.warning(msg=f"Failed to register {id_obj_pair} as it is not an IdentifierObjectPair!")
 
 
 class ThreeDimensionalPosition():
@@ -349,7 +366,7 @@ class ThreeDimensionalPosition():
             return ThreeDimensionalPosition(self.get_x() - distance, self.get_y(), self.get_z())
 
         else:
-            logger.warning(f"Could not get offset of ThreeDimensionalPosition by direction {str(direction)} because it is not a Direction!")
+            logger.warning(f"Could not get offset of ThreeDimensionalPosition by direction {direction} because it is not a Direction!")
             return self
 
     def get_relative(self, other):
@@ -453,7 +470,7 @@ class TickableObject():
     def tick(self):
         pass
 
-    def get_ticks_per_second(self):
+    def get_max_tickrate(self):
         return 64
 
 
@@ -572,7 +589,7 @@ class ThreeDimensionalShape():
                 self.set_boxes(other_boxes)
                 return self
         else:
-            logger.warning(f"Could not merge shape {str(self)} with other object {str(other)} because other is not a ThreeDimensionalShape! ")
+            logger.warning(f"Could not merge shape {self} with other object {other} because other is not a ThreeDimensionalShape! ")
             return self
 
     def move(self, offset_x=0, offset_y=0, offset_z=0, update_self=True):
@@ -591,6 +608,29 @@ class ThreeDimensionalShape():
     class ThreeDimensionalBox():
         def __init__(self, faces=[]):
             self.set_faces(faces)
+
+        def rectangular_prism(c1, c2, c3, c4, c5, c6, c7, c8, tex1=None, tex2=None, tex3=None, tex4=None, tex5=None, tex6=None, tex_default=saoirse_missing_image_path):
+            if tex1 is None:
+                tex1=tex_default
+            if tex2 is None:
+                tex2=tex_default
+            if tex3 is None:
+                tex3=tex_default
+            if tex4 is None:
+                tex4=tex_default
+            if tex5 is None:
+                tex5=tex_default
+            if tex6 is None:
+                tex6=tex_default
+
+            return ThreeDimensionalShape.ThreeDimensionalBox(faces=[
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c1, c2, c3, c4], texture=tex1), # Front
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c5, c6, c7, c8], texture=tex2), # Back
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c1, c3, c5, c7], texture=tex3), # Left
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c2, c4, c6, c8], texture=tex4), # Right
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c1, c2, c5, c6], texture=tex5), # Top
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c3, c4, c7, c8], texture=tex6), # Bottom
+            ])
 
         def get_corners(self):
             corners = []
@@ -674,7 +714,17 @@ class SpaceGameObject(MainGameObject):
         return self.get_model()
 
     def set_pos(self, pos):
-        self.pos = pos
+        should_set = True
+        has_pos = hasattr(self, "pos")
+        if has_pos:
+            should_set = self.pos != pos
+        if should_set:
+            if has_pos and self.get_current_space() is not None and self.get_current_space() != self:
+                self.get_current_space().remove_obj_at_pos(self.pos, [self])
+                self.pos = pos
+                self.get_current_space().add_obj_at_pos(pos, self)
+            else:
+                self.pos = pos
         return self
 
     def get_pos(self):
@@ -698,10 +748,34 @@ class Item(SpaceGameObject):
     def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), space=None):
         super().__init__(ide, server, pos, space)
 
+    def get_model(self):
+        return Item.BaseItemShape()
+
+    class BaseItemShape(ThreeDimensionalShape):
+        def __init__(self, boxes=[]):
+            boxes1 = boxes.copy()
+            if len(boxes1) == 0:
+                boxes1.append(
+                    ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(0, 0, 1), ThreeDimensionalPosition(1, 0, 1), ThreeDimensionalPosition(0, 0, 0), ThreeDimensionalPosition(1, 0, 0), ThreeDimensionalPosition(0, 1, 1), ThreeDimensionalPosition(1, 1, 1), ThreeDimensionalPosition(0, 1, 0), ThreeDimensionalPosition(1, 1, 0))
+                )
+            super().__init__(boxes=boxes1)
+
 
 class Tile(SpaceGameObject):
     def __init__(self, ide, server, pos=ThreeDimensionalPosition.get_origin(), space=None):
         super().__init__(ide, server, pos, space)
+
+    def get_model(self):
+        return Tile.BaseTilehape()
+
+    class BaseTilehape(ThreeDimensionalShape):
+        def __init__(self, boxes=[]):
+            boxes1 = boxes.copy()
+            if len(boxes1) == 0:
+                boxes1.append(
+                    ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(0, 0, 1), ThreeDimensionalPosition(1, 0, 1), ThreeDimensionalPosition(0, 0, 0), ThreeDimensionalPosition(1, 0, 0), ThreeDimensionalPosition(0, 1, 1), ThreeDimensionalPosition(1, 1, 1), ThreeDimensionalPosition(0, 1, 0), ThreeDimensionalPosition(1, 1, 0))
+                )
+            super().__init__(boxes=boxes1)
 
 
 class Fluid(SpaceGameObject):
@@ -722,6 +796,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
         super().__init__(ide, server, ThreeDimensionalPosition.get_origin(), self)
 
         self.space_game_obj_sets = {}
+        self.obj_lock = False
 
     def get_server(self):
         return self.server
@@ -739,25 +814,29 @@ class ThreeDimensionalSpace(SpaceGameObject):
         return 6.67 * (10**-11)
 
     def get_gravity_speed(self, m1, m2, distance):
-        return ((self.get_g_constant() * m1 * m2) / (distance**2)) / self.get_server().get_ticks_per_second()
+        return ((self.get_g_constant() * m1 * m2) / (distance**2)) / self.get_server().get_max_tickrate()
 
-    def add_object_at_pos(self, pos, space_game_object):
+    def add_obj_at_pos(self, pos, space_game_object):
+        self.obj_lock = True
         space_game_object.set_pos(pos)
         space_game_object.set_current_space(self)
         pos_str = pos.to_str()
         existing_objects = self.space_game_obj_sets.get(pos_str, [])
         existing_objects.append(space_game_object)
         self.space_game_obj_sets[pos_str] = existing_objects
+        self.obj_lock = False
         return self
 
-    def remove_object_at_pos(self, pos, check_space_game_object=None):
-        for space_game_object in self.get_object_set_at_pos(pos, check_space_game_object):
+    def remove_object_at_pos(self, pos, check_objects=[]):
+        self.obj_lock = True
+        for space_game_object in self.get_object_set_at_pos(pos, check_objects):
             self.space_game_obj_sets.pop(space_game_object)
+        self.obj_lock = False
         return self
 
     def replace_object_at_pos(self, pos, old_space_game_object, new_space_game_object):
         self.remove_object_at_pos(pos, old_space_game_object)
-        self.add_object_at_pos(pos, new_space_game_object)
+        self.add_obj_at_pos(pos, new_space_game_object)
         return self
 
     def get_object_set_at_pos(self, pos, check_objects=[]):
@@ -801,13 +880,14 @@ class ThreeDimensionalSpace(SpaceGameObject):
                 nearest_dist = pos.get_distance_from_other(nearest_pos)
                 if nearest_dist > 0:
                     for key in self.get_obj_sets_dict().keys():
-                        check_pos = ThreeDimensionalPosition.of_str(key)
-                        check_dist = pos.get_distance_from_other(check_pos)
-                        if check_dist < nearest_dist:
-                            nearest_pos = check_pos
-                            nearest_dist = check_dist
-            return self.get_object_set_at_pos(nearest_pos, exclusions)
-        return None
+                        if len(self.get_object_set_at_pos(nearest_pos, exclusions)) > 0:
+                            check_pos = ThreeDimensionalPosition.of_str(key)
+                            check_dist = pos.get_distance_from_other(check_pos)
+                            if check_dist < nearest_dist:
+                                nearest_pos = check_pos
+                                nearest_dist = check_dist
+            return self.get_object_set_at_pos(nearest_pos, exclusions), nearest_pos
+        return None, None
 
     def get_heaviest_objects_in_set(self, obj_set):
         if len(obj_set) > 0:
@@ -829,15 +909,18 @@ class ThreeDimensionalSpace(SpaceGameObject):
 
     def tick_object_gravity(self, obj):
         if len(self.get_obj_sets()) > 1 and obj.has_gravity():
-            nearest_set = self.get_nearest_obj_set_to_pos(obj.get_pos(), [obj])
-            if nearest_set is not None:
+            nearest_set, nearest_pos = self.get_nearest_obj_set_to_pos(obj.get_pos(), [obj])
+            if nearest_set is not None and nearest_pos != obj.get_pos():
                 if len(nearest_set) > 0:
                     mass = self.get_mass_of_set(nearest_set)
                     if mass > 0:
-                        obj.set_pos(obj.get_pos().offset(obj.get_pos().get_nearest_direction_to_other_pos(nearest.get_pos()), self.get_gravity_speed(obj.get_mass(), nearest.get_mass(), nearest.get_pos().get_distance_from_other(obj.get_pos()))))
+                        obj.set_pos(obj.get_pos().approach(nearest_pos, self.get_gravity_speed(obj.get_mass(), mass, nearest_pos.get_distance_from_other(obj.get_pos()))))
         return self
 
     def tick(self):
+        if self.obj_lock:
+            while self.obj_lock:
+                sleep(0.0001)
         for obj_set in self.get_obj_sets():
             for obj in obj_set:
                 obj.tick()
@@ -864,7 +947,7 @@ class ThreeDimensionalSpace(SpaceGameObject):
                                 pos = ThreeDimensionalPosition.of_dict(obj_data[ThreeDimensionalSpace.SaveDataKeys.POS.value])
                                 obj.set_pos(pos)
                                 obj.set_data(obj_data.get(ThreeDimensionalSpace.SaveDataKeys.DATA.value))
-                                self.add_object_at_pos(pos, obj)
+                                self.add_obj_at_pos(pos, obj)
 
     def get_data(self):
         data = super().get_data()
