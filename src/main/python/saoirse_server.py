@@ -90,11 +90,13 @@ class Items:
 
                 class HatchetItemShape(Item.BaseItemShape):
                     def __init__(self, boxes=[]):
-                        # boxes1 = boxes.copy()
-                        # boxes1.extend([
-                        #     ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(1, 1, 3), ThreeDimensionalPosition(3, 1, 3), ThreeDimensionalPosition(1, 1, 1), ThreeDimensionalPosition(3, 1, 1), ThreeDimensionalPosition(1, 3, 3), ThreeDimensionalPosition(3, 3, 3), ThreeDimensionalPosition(1, 3, 1), ThreeDimensionalPosition(3, 3, 1), tex_default=saoirse_images_path.append("pic1.png")),
-                        # ])
-                        super().__init__(boxes=boxes)
+                        boxes1 = boxes.copy()
+                        boxes1.extend([
+                            ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(1, 1, 3), ThreeDimensionalPosition(3, 1, 3), ThreeDimensionalPosition(1, 1, 1), ThreeDimensionalPosition(3, 1, 1), ThreeDimensionalPosition(1, 3, 3), ThreeDimensionalPosition(3, 3, 3), ThreeDimensionalPosition(1, 3, 1), ThreeDimensionalPosition(3, 3, 1), tex_default=saoirse_images_path.append("pic2.png")),
+                            ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(1, 1, 11), ThreeDimensionalPosition(3, 1, 9), ThreeDimensionalPosition(1, 1, 3.25), ThreeDimensionalPosition(3, 1, 3.25), ThreeDimensionalPosition(1, 1.5, 9), ThreeDimensionalPosition(3, 1.5, 9), ThreeDimensionalPosition(1, 1.5, 3.25), ThreeDimensionalPosition(3, 1.5, 3.25), tex_default=saoirse_images_path.append("pic1.png")),
+                            ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(10, 10, 11), ThreeDimensionalPosition(30, 10, 9), ThreeDimensionalPosition(10, 10, 3.25), ThreeDimensionalPosition(30, 10, 3.25), ThreeDimensionalPosition(10, 10.5, 9), ThreeDimensionalPosition(30, 10.5, 9), ThreeDimensionalPosition(10, 10.5, 3.25), ThreeDimensionalPosition(30, 10.5, 3.25), tex_default=saoirse_images_path.append("missing.png")),
+                        ])
+                        super().__init__(boxes=boxes1)
 
 
 class Entities:
@@ -359,6 +361,9 @@ class SaoirseServer(BaseServer):
     def get_player_ids(self):
         return self.get_players_dict().keys()
 
+    def get_spawn_space(self):
+        return SaoirseRegistry.Identifiers.SPACES.normal.get_identifier()
+
     def add_player(self, player_id="Player1"):
         if player_id is None or player_id == "":
             logger.warning("Failed to add player with blank id!")
@@ -368,7 +373,9 @@ class SaoirseServer(BaseServer):
                 player = self.get_registry().get_entry(SaoirseRegistry.Identifiers.ENTITIES.player.get_identifier()).get_obj()
                 player.set_server(self)
                 player.set_player_id(player_id)
-                self.get_space(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier()).add_obj_at_pos(player.get_pos(), player)
+                if self.get_spawn_space_id().get_path_str() not in self.get_spaces_dict().keys():
+                    self.generate_space(self.get_spawn_space_id())
+                self.get_space(self.get_spawn_space_id()).add_obj_at_pos(player.get_pos(), player)
                 self.players[player_id] = player
 
     def get_player_by_id(self, player_id):
@@ -380,12 +387,14 @@ class SaoirseServer(BaseServer):
             return players.get(player_id_str)
         return None
 
+    def generate_space(self, space_ide):
+        space = self.get_registry().get_entry(space_ide).get_obj()
+        space.generate_terrain_at_pos()
+        self.add_space(space)
+
     def generate_spaces(self):
         for space_ide in SaoirseRegistry.Identifiers.SPACES:
-            self.add_space(self.get_registry().get_entry(space_ide.get_identifier()).get_obj())
-
-        for space in self.get_spaces():
-            space.generate_terrain_at_pos()
+            self.generate_space(space_ide.get_identifier())
 
     def set_max_tickrate(self, tickrate):
         self.max_tickrate = tickrate

@@ -626,10 +626,10 @@ class ThreeDimensionalShape():
             return ThreeDimensionalShape.ThreeDimensionalBox(faces=[
                 ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c1, c2, c3, c4], texture=tex1), # Front
                 ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c5, c6, c7, c8], texture=tex2), # Back
-                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c1, c3, c5, c7], texture=tex3), # Left
-                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c2, c4, c6, c8], texture=tex4), # Right
-                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c1, c2, c5, c6], texture=tex5), # Top
-                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c3, c4, c7, c8], texture=tex6), # Bottom
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c1, c5, c7, c3], texture=tex3), # Left
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c2, c6, c8, c4], texture=tex4), # Right
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c1, c2, c6, c5], texture=tex5), # Top
+                ThreeDimensionalShape.ThreeDimensionalBox.ThreeDimensionalFace(corners=[c3, c4, c8, c7], texture=tex6), # Bottom
             ])
 
         def get_corners(self):

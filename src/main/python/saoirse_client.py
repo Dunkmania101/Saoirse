@@ -781,17 +781,18 @@ class SaoirseClientMainWindowScreenPIL(SaoirseClientMainWindowScreen):
                                 least_y = vy
                     if len(xz) >= 2:
                         mask = Image.new(mode="RGBA", size=(greatest_x, greatest_z), color=(0, 0, 0, 0))
-                        ImageDraw.Draw(im=mask, mode="RGBA").polygon(xy=xz, fill=(255, 255, 255, 100), outline=(0, 0, 0, 255))
+                        ImageDraw.Draw(im=mask, mode="RGBA").polygon(xy=xz, fill=(255, 255, 255, 255))
                         texture = face.get_texture()
                         if isinstance(texture, Identifier):
                             texture = Image.open(texture.get_file_path())
                         mask.paste(im=texture.resize(mask.size), mask=mask)
                         texture.close()
+                        ImageDraw.Draw(im=mask, mode="RGBA").line(xy=xz, fill=(190, 190, 190, 255))
                         masks_y = masks.get(least_y, [])
                         masks_y.append(mask)
                         masks[least_y] = masks_y
                 yvals = list(masks.keys())
-                yvals.sort()
+                yvals.sort(reverse=True)
                 for yval in yvals:
                     for mask in masks.get(yval, []):
                         self.draw_image(mask, dots_per_meter*x, dots_per_meter*z)
@@ -807,7 +808,7 @@ class SaoirseClientMainWindowScreenPIL(SaoirseClientMainWindowScreen):
                 font=ImageFont.load_path(font_name)
             except Exception as e:
                 if not hasattr(self, "has_warned_missing_font"):
-                    logger.warning(f"Using plain font: Failed to draw text using font {font_name} with exception: {e}")
+                    logger.warning(f"Using plain font: Failed to draw text using font ={font_name}= with exception: {e}")
                     self.has_warned_missing_font = True
                 font=None
         img = Image.new(mode="RGBA", size=((int(right-left), int(bottom-top))), color=(0, 0, 0, 0))
