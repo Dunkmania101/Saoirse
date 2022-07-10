@@ -1,5 +1,5 @@
 # This file is:
-# src/python/saoirse_server.py
+# src/main/python/saoirse_server.py
 
 
 """
@@ -28,12 +28,13 @@ SOFTWARE.
 
 
 import sys #, uuid
+from dataclasses import dataclass
 from time import time as gettime
-from os import path, makedirs, mknod
+from os import path as ospath, makedirs, mknod
 #from msgpack import pack as mpack, unpack as munpack
 from json import dumps as jdumps, loads as jloads
 from pickle import dump as pkldump, load as pklload
-from saoirse_base import saoirse_base_version, saoirse_id, saoirse_images_path, logger, expand_full_path, Identifier, IdentifierEnum, BaseRegistry, Item, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer, ThreeDimensionalShape
+from saoirse_lib import saoirse_lib_version, saoirse_id, saoirse_images_path, logger, expand_full_path, Identifier, IdentifierEnum, MultiKeyDict, BaseRegistry, Item, ThreeDimensionalPosition, ThreeDimensionalSpace, Tile, Fluid, Entity, BaseServer, ThreeDimensionalShape
 
 
 saoirse_server_version = "0.0.1"
@@ -44,13 +45,30 @@ class SaoirseIdentifierEnum(IdentifierEnum):
         return Identifier(saoirse_id)
 
 
+class SaoirseThreeDimensionalSpace(ThreeDimensionalSpace):
+    @dataclass(frozen=True)
+    class DataKeys:
+        player_key = "player"
+
+    def __init__(self, ide, server):
+        super().__init__(ide, server)
+
+        self.space_game_obj_sets = MultiKeyDict()
+
+    def add_obj_at_pos(self, pos, obj):
+        return super().add_obj_at_pos(pos, obj, additional_keys=[self.DataKeys.player_key] if isinstance(obj, Entities.PlayerEntity) else [])
+
+    def get_players(self):
+        return self.space_game_obj_sets.get(self.DataKeys.player_key, [])
+
+
 class Items:
     class CanvasSheetItem(Item):
         def get_mass(self):
             return 999999999999
 
         def get_model(self):
-            return ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(1, 1, 3), ThreeDimensionalPosition(3, 1, 3), ThreeDimensionalPosition(1, 1, 1), ThreeDimensionalPosition(3, 1, 1), ThreeDimensionalPosition(1, 3, 3), ThreeDimensionalPosition(3, 3, 3), ThreeDimensionalPosition(1, 3, 1), ThreeDimensionalPosition(3, 3, 1), tex_default=saoirse_images_path.append("pic1.png"))
+            return ThreeDimensionalShape(boxes=[ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(0, 0, 1), ThreeDimensionalPosition(1, 0, 1), ThreeDimensionalPosition(1, 0, 0), ThreeDimensionalPosition(0, 0, 0), ThreeDimensionalPosition(0, 1, 1), ThreeDimensionalPosition(1, 1, 1), ThreeDimensionalPosition(1, 1, 0), ThreeDimensionalPosition(0, 1, 0), tex_default=saoirse_images_path.append("pic1.png"))])
 
     class Equipment:
         class Tools:
@@ -90,19 +108,20 @@ class Items:
 
                 class HatchetItemShape(Item.BaseItemShape):
                     def __init__(self, boxes=[]):
-                        boxes1 = boxes.copy()
-                        boxes1.extend([
-                            ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(1, 1, 3), ThreeDimensionalPosition(3, 1, 3), ThreeDimensionalPosition(1, 1, 1), ThreeDimensionalPosition(3, 1, 1), ThreeDimensionalPosition(1, 3, 3), ThreeDimensionalPosition(3, 3, 3), ThreeDimensionalPosition(1, 3, 1), ThreeDimensionalPosition(3, 3, 1), tex_default=saoirse_images_path.append("pic2.png")),
+                        boxes.extend([
+                            ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(0, 0, 1), ThreeDimensionalPosition(1, 0, 1), ThreeDimensionalPosition(1, 0, 0), ThreeDimensionalPosition(0, 0, 0), ThreeDimensionalPosition(0, 1, 1), ThreeDimensionalPosition(1, 1, 1), ThreeDimensionalPosition(1, 1, 0), ThreeDimensionalPosition(0, 1, 0), tex_default=saoirse_images_path.append("pic2.png")),
                             ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(1, 1, 11), ThreeDimensionalPosition(3, 1, 9), ThreeDimensionalPosition(1, 1, 3.25), ThreeDimensionalPosition(3, 1, 3.25), ThreeDimensionalPosition(1, 1.5, 9), ThreeDimensionalPosition(3, 1.5, 9), ThreeDimensionalPosition(1, 1.5, 3.25), ThreeDimensionalPosition(3, 1.5, 3.25), tex_default=saoirse_images_path.append("pic1.png")),
-                            ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(10, 10, 11), ThreeDimensionalPosition(30, 10, 9), ThreeDimensionalPosition(10, 10, 3.25), ThreeDimensionalPosition(30, 10, 3.25), ThreeDimensionalPosition(10, 10.5, 9), ThreeDimensionalPosition(30, 10.5, 9), ThreeDimensionalPosition(10, 10.5, 3.25), ThreeDimensionalPosition(30, 10.5, 3.25), tex_default=saoirse_images_path.append("missing.png")),
+                            ThreeDimensionalShape.ThreeDimensionalBox.rectangular_prism(ThreeDimensionalPosition(10, 10, 9), ThreeDimensionalPosition(30, 10, 9), ThreeDimensionalPosition(10, 10, 3.25), ThreeDimensionalPosition(30, 10, 3.25), ThreeDimensionalPosition(10, 10.5, 9), ThreeDimensionalPosition(30, 10.5, 9), ThreeDimensionalPosition(10, 10.5, 3.25), ThreeDimensionalPosition(30, 10.5, 3.25), tex_default=saoirse_images_path.append("missing.png")),
                         ])
-                        super().__init__(boxes=boxes1)
+                        super().__init__(boxes=boxes)
 
 
 class Entities:
     class PlayerEntity(Entity):
+        @dataclass(frozen=True)
         class DataKeys:
             player_id_key = "player_id"
+
         def __init__(self, server, ide=None):
             super().__init__(ide=SaoirseRegistry.Identifiers.ENTITIES.player.get_identifier(), server=server)
 
@@ -126,24 +145,24 @@ class Entities:
 
 
 class Spaces:
-    class NormalSpace(ThreeDimensionalSpace):
+    class NormalSpace(SaoirseThreeDimensionalSpace):
         def __init__(self, server):
             super().__init__(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier(), server)
 
         def generate_terrain_at_pos(self, pos=ThreeDimensionalPosition.get_origin()):
             # TEST - adding objects
             if pos == ThreeDimensionalPosition.get_origin():
-                self.add_obj_at_pos(pos.get_relative(ThreeDimensionalPosition(1, 3, 1)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.hatchet.get_identifier()).get_obj())
-                self.add_obj_at_pos(pos.get_relative(ThreeDimensionalPosition(2, 3, 10)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_identifier()).get_obj())
+                self.add_obj_at_pos(pos.get_relative(ThreeDimensionalPosition(3, 3, 2)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.hatchet.get_identifier()).get_obj())
+                self.add_obj_at_pos(pos.get_relative(ThreeDimensionalPosition(2, 3, 70)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.canvas_sheet.get_identifier()).get_obj())
 
-    class GhostlySpace(ThreeDimensionalSpace):
+    class GhostlySpace(SaoirseThreeDimensionalSpace):
         def __init__(self, server):
             super().__init__(SaoirseRegistry.Identifiers.SPACES.ghostly.get_identifier(), server)
 
         def generate_terrain_at_pos(self, pos=ThreeDimensionalPosition.get_origin()):
             # TEST - adding objects
             if pos == ThreeDimensionalPosition.get_origin():
-                self.add_obj_at_pos(pos.get_relative(ThreeDimensionalPosition(9, 25, 4500)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.ironwood_stick.get_identifier()).get_obj())
+                self.add_obj_at_pos(pos.get_relative(ThreeDimensionalPosition(1, 5, 1)), self.get_server().get_registry().get_entry(SaoirseRegistry.Identifiers.ITEMS.hatchet.get_identifier()).get_obj())
 
 
 class SaoirseRegistry(BaseRegistry):
@@ -306,6 +325,7 @@ class SaoirseRegistry(BaseRegistry):
 
 
 class SaoirseServer(BaseServer):
+    @dataclass(frozen=True)
     class DataKeys:
         world_key = "world"
         config_key = "config"
@@ -318,45 +338,34 @@ class SaoirseServer(BaseServer):
         self.set_current_tickrate(0)
 
         self.set_save_file(save_file)
-        if config_file.startswith(self.DataKeys.save_dir_key):
-            config_file = config_file.replace(self.DataKeys.save_dir_key, self.get_save_dir())
+        config_file = config_file.replace(self.DataKeys.save_dir_key, self.get_save_dir())
         self.set_config_file(config_file)
 
         super().__init__(saoirse_id, SaoirseRegistry(self))
 
-        if path.isfile(self.get_config_file()):
+        if ospath.isfile(self.get_config_file()):
             self.read_config_from_file()
         if not hasattr(self, "max_tickrate"):
             self.set_max_tickrate(64)
         if not hasattr(self, "min_tickrate"):
             self.set_min_tickrate(10)
 
-        self.players = {}
-
         self.set_spawn_space(SaoirseRegistry.Identifiers.SPACES.normal.get_identifier())
         self.set_spawn_pos(ThreeDimensionalPosition(0, 0, 4000))
 
-        if path.isfile(self.get_save_file()):
+        if ospath.isfile(self.get_save_file()):
             self.read_world_from_file()
         else:
             self.generate_spaces()
 
-    def refresh_players(self):
-        players = {}
-        for space in self.get_spaces():
-            for obj_set in space.get_obj_sets():
-                for obj in obj_set:
-                    if isinstance(obj, Entities.PlayerEntity):
-                        players[str(obj.get_player_id())] = obj
-        if self.players != players:
-            self.players.clear()
-            self.players = players
+    def get_players(self):
+        players = []
+        for space_players in [space.get_players() for space in self.get_spaces() if hasattr(space, "get_players")]:
+            players.extend(space_players)
+        return players
 
     def get_players_dict(self):
-        return self.players
-
-    def get_players(self):
-        return list(self.get_players_dict())
+        return {str(player.get_player_id()): player for player in self.get_players()}
 
     def get_player_ids(self):
         return self.get_players_dict().keys()
@@ -367,22 +376,17 @@ class SaoirseServer(BaseServer):
     def add_player(self, player_id="Player1"):
         if player_id is None or player_id == "":
             logger.warning("Failed to add player with blank id!")
-        else:
-            self.refresh_players()
-            if player_id not in self.get_player_ids():
-                player = self.get_registry().get_entry(SaoirseRegistry.Identifiers.ENTITIES.player.get_identifier()).get_obj()
-                player.set_server(self)
-                player.set_player_id(player_id)
-                if self.get_spawn_space_id().get_path_str() not in self.get_spaces_dict().keys():
-                    self.generate_space(self.get_spawn_space_id())
-                self.get_space(self.get_spawn_space_id()).add_obj_at_pos(player.get_pos(), player)
-                self.players[player_id] = player
+        elif player_id not in self.get_player_ids():
+            player = self.get_registry().get_entry(SaoirseRegistry.Identifiers.ENTITIES.player.get_identifier()).get_obj()
+            player.set_server(self)
+            player.set_player_id(player_id)
+            if self.get_spawn_space_id().get_path_str() not in self.get_spaces_dict().keys():
+                self.generate_space(self.get_spawn_space_id())
+            self.get_space(self.get_spawn_space_id()).add_obj_at_pos(player.get_pos(), player)
 
     def get_player_by_id(self, player_id):
         player_id_str = str(player_id)
         players = self.get_players_dict()
-        if player_id_str not in players.keys():
-            self.refresh_players()
         if player_id_str in players.keys():
             return players.get(player_id_str)
         return None
@@ -393,7 +397,7 @@ class SaoirseServer(BaseServer):
         self.add_space(space)
 
     def generate_spaces(self):
-        for space_ide in SaoirseRegistry.Identifiers.SPACES:
+        for space_ide in [SaoirseRegistry.Identifiers.SPACES.normal, SaoirseRegistry.Identifiers.SPACES.ghostly]:
             self.generate_space(space_ide.get_identifier())
 
     def set_max_tickrate(self, tickrate):
@@ -449,10 +453,16 @@ class SaoirseServer(BaseServer):
         return self.config_file
 
     def get_save_dir(self):
-        return path.dirname(self.get_save_file())
+        p = ospath.dirname(self.get_save_file())
+        if p.isspace():
+            p = str(ospath.curdir)
+        return p
 
     def get_config_dir(self):
-        return path.dirname(self.get_config_file())
+        p = ospath.dirname(self.get_config_file())
+        if p.isspace():
+            p = str(ospath.curdir)
+        return p
 
     #def save_to_file(self):
     #    with open(self.get_save_file(), "w") as f:
@@ -465,10 +475,10 @@ class SaoirseServer(BaseServer):
     def save_to_file(self, file_path, data, use_pkl=False):
         if data is not None:
             try:
-                file_dir = path.dirname(file_path)
-                if not path.isdir(file_dir):
+                file_dir = ospath.dirname(file_path)
+                if not ospath.isdir(file_dir):
                     makedirs(file_dir)
-                if not path.isfile(file_path):
+                if not ospath.isfile(file_path):
                     mknod(file_path)
                 if use_pkl:
                     with open(file_path, "wb") as f:
@@ -480,27 +490,27 @@ class SaoirseServer(BaseServer):
                 logger.warning(f"Failed to write save to file, the old file may have been written with broken data (see the following exception for more info, \"no such file or directory\" means no damage was done): {e}")
 
     def save_world_to_file(self):
-        data = None
         try:
             data = self.get_world_data() # Get data first to avoid writing a broken state to the save file
         except Exception as e:
+            data = None
             logger.warning(f"Failed to write save to file, it will not be saved (the old save will still remain intact): {e}")
         if data is not None:
             self.save_to_file(self.get_save_file(), data, True)
 
     def save_config_to_file(self):
-        data = None
         try:
             data = self.get_config_data() # Get data first to avoid writing a broken state to the config file
         except Exception as e:
+            data = None
             logger.warning(f"Failed to write config to file, it will not be saved (the old config will still remain intact): {e}")
         if data is not None:
             self.save_to_file(self.get_config_file(), data, False)
 
-    def read_from_file(self, file_path, use_pkl=False):
+    def read_data_from_file(self, file_path, use_pkl=False):
         data = None
         try:
-            if path.isfile(file_path):
+            if ospath.isfile(file_path):
                 # Get data first to avoid reading a broken state from the save file
                 if use_pkl:
                     with open(file_path, "rb") as f:
@@ -519,10 +529,14 @@ class SaoirseServer(BaseServer):
             self.set_data(data)
 
     def read_world_from_file(self):
-        self.read_from_file(self.get_save_file(), True)
+        self.read_data_from_file(self.get_save_file(), True)
 
     def read_config_from_file(self):
-        self.read_from_file(self.get_config_file(), False)
+        self.read_data_from_file(self.get_config_file(), False)
+
+    def read_from_file(self):
+        self.read_config_from_file()
+        self.read_world_from_file()
 
     def set_current_tickrate(self, tickrate):
         self.current_tickrate = tickrate
@@ -560,8 +574,8 @@ def main(args):
 
     For binary releases:
 
-    saoirse_server OPTIONS
-    saoirse_server.exe OPTIONS
+    *NIX: saoirse_server OPTIONS
+    WINDOWS: saoirse_server.exe OPTIONS
 
     For Python source files:
 
@@ -576,7 +590,7 @@ def main(args):
     """
 
     version_msg = f"""
-    Saoirse Library Version: {saoirse_base_version}
+    Saoirse Library Version: {saoirse_lib_version}
     Saoirse *Server* Version: {saoirse_server_version}
     """
 
@@ -610,3 +624,4 @@ def main(args):
 
 if __name__ == "__main__":
     main(sys.argv)
+
